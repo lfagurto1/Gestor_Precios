@@ -535,7 +535,7 @@ input[type=number]{-moz-appearance:textfield;appearance:textfield}
 <!-- ══════════ JS ══════════ -->
 <script>
 'use strict';
-const LS_REG='pvc_reg_v3', LS_CAT='pvc_cat_v2';
+const LS_REG='pvc_reg_v3';
 let CAT=null;
 const MESES=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -618,23 +618,9 @@ function vista(id){_vistaOrig(id);if(window.innerWidth<=768)cerrarSidebar();}
 function getRegs(){try{return JSON.parse(localStorage.getItem(LS_REG)||'[]');}catch(e){return[];}}
 function saveRegs(arr){try{localStorage.setItem(LS_REG,JSON.stringify(arr));}catch(e){Swal.fire({icon:'warning',title:'localStorage lleno',text:'Exporta y limpia datos antiguos.',timer:4000});}}
 function getCAT(){
+  // El catálogo es SOLO en memoria — no se persiste en localStorage
+  // Hay que cargarlo cada vez que se abre la página
   if(CAT&&CAT.size>0) return CAT;
-  try{
-    const raw=localStorage.getItem(LS_CAT);
-    if(!raw) return null;
-    const s=JSON.parse(raw);
-    if(s&&Array.isArray(s.data)&&s.data.length>0){
-      CAT=new Map(s.data);
-      // Actualizar UI si el catálogo se restauró
-      const info=document.getElementById('cat-info');
-      if(info) info.textContent='Catálogo: '+CAT.size+' prod.';
-      const lbl=document.getElementById('cat-label');
-      if(lbl) lbl.textContent='✔ Catálogo guardado — '+CAT.size+' productos';
-      const zone=document.getElementById('zone-cat');
-      if(zone) zone.classList.add('ok');
-      return CAT;
-    }
-  }catch(e){console.warn('Error restaurando catálogo:',e);}
   return null;
 }
 
@@ -676,7 +662,7 @@ function leerCat(file){
       const m=new Map();const dups=[];
       rows.forEach(rw=>{const b=String(rw['Código de barras']||'').trim();if(!b)return;if(m.has(b))dups.push(b);m.set(b,rw);});
       CAT=m;
-      try{localStorage.setItem(LS_CAT,JSON.stringify({ts:Date.now(),file:file.name,total:m.size,data:Array.from(m.entries())}));}catch(e){console.warn('LS lleno');}
+      // El catálogo NO se persiste — solo vive en memoria durante la sesión
       document.getElementById('zone-cat').classList.add('ok');
       document.getElementById('cat-label').textContent='✔ '+file.name+' — '+m.size+' productos';
       document.getElementById('cat-info').textContent='Catálogo: '+m.size+' prod.';
@@ -693,30 +679,18 @@ function leerCat(file){
 function onProv(e){const f=e.target.files[0];if(f)leerProv(f);document.getElementById('fi-prov').value='';}
 function leerProv(file){
   if(!esXls(file)){alertErr('Solo .xlsx o .xls');return;}
-  // Intentar restaurar catálogo si no está en memoria
-  const cat=getCAT();
-  if(!cat){
-    alertErr('El catálogo no está cargado.\n\nVe a "Cargar Comunicado" y sube primero el archivo Catalogo_Act_PVP.xlsx.\n\nNota: si cambiaste de navegador o dispositivo, el catálogo debe cargarse nuevamente.');
-    return;
-  }
+  const cat=getCAT(); // puede ser null — el catálogo es opcional
   const r=new FileReader();
   r.onload=ev=>{
     try{
       const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,raw:true});
-      // Buscar hoja FORMATO (insensible a mayúsculas, tildes, espacios)
       const wsName=wb.SheetNames.find(n=>
-        n.toUpperCase().replace(/[ÁÀÄÂ]/g,'A').replace(/[ÉÈËÊ]/g,'E').includes('FORMATO')
+        n.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').includes('FORMATO')
       )||wb.SheetNames[0];
       const ws=wb.Sheets[wsName];
-      if(!ws){
-        alertErr(`No se encontró la hoja FORMATO.\nHojas disponibles: ${wb.SheetNames.join(', ')}`);
-        return;
-      }
+      if(!ws){alertErr('No se encontró la hoja FORMATO. Hojas: '+wb.SheetNames.join(', '));return;}
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,cellDates:true,blankrows:false});
-      if(!rows||rows.length<6){
-        alertErr(`El archivo tiene muy pocas filas (${rows?.length||0}). Verifica que sea el Formato_Comunicado_Cambio_Precios.xlsx correcto.`);
-        return;
-      }
+      if(!rows||rows.length<6){alertErr('El archivo tiene pocas filas ('+( rows&&rows.length||0)+'). Verifica el archivo.');return;}
       let prov='';
       if(rows[1]&&rows[1][2]!=null)prov=String(rows[1][2]).trim();
       const regs=getRegs();
@@ -726,66 +700,57 @@ function leerProv(file){
         const barras=rw[0]!=null?String(rw[0]).trim():'';if(!barras)continue;
         let iva=parseFloat(rw[2])||0;
         if(iva>0&&iva<=1)iva=Math.round(iva*100);else iva=Math.round(iva);
-        const pvfAnt  =parseFloat(rw[3])||0;
-        const pvpAnt  =parseFloat(rw[4])||0;
-        const pvfNuevo=parseFloat(rw[5])||0;
-        const pvpNuevo=parseFloat(rw[6])||0;
-        const vigencia=rw[7];
-        const vigStr  =fmtDate(vigencia);
-        const hit=cat.get(barras);
+        const pvfAnt=parseFloat(rw[3])||0, pvpAnt=parseFloat(rw[4])||0;
+        const pvfNuevo=parseFloat(rw[5])||0, pvpNuevo=parseFloat(rw[6])||0;
+        const vigencia=rw[7], vigStr=fmtDate(vigencia);
+        const nombre=String(rw[1]||'').trim();
+        const provNombre=prov||file.name.replace(/\.xlsx?$/i,'');
+        const hit=cat?cat.get(barras):null;
         if(hit){
           const ivaC=parseFloat(hit['Impuestos del cliente/Importe'])||iva;
-          const udm =parseFloat(hit['UdM de compra/Proporción mayor'])||1;
+          const udm=parseFloat(hit['UdM de compra/Proporción mayor'])||1;
           const pvpA=parseFloat(hit['Precio (PVP+IVA)'])||pvpAnt;
           const pvfA=parseFloat(hit['Precio (PVF)'])||pvfAnt;
           const pvpN=pvpNuevo;const pvfN=pvfNuevo||pvfA;
           const calc=calcP(pvpN,ivaC,udm);
           const pctInc=pvpN>0?((pvpN-pvpA)/pvpN*100):0;
-          // Fecha de Vencimiento Informacion_Ant: viene del catálogo (puede estar vacía)
           const fvAnt=fmtDate(hit['Fecha de Vencimiento Informacion']);
-          // Fecha de Vencimiento Informacion: siempre fecha actual + 1 año
-          const fvNueva=fechaMas1Y();
           const desc=buildDesc(hit['Descripción'],vigStr,pvpA);
-          regs.push({
-            _id:genId(),estado:'PENDIENTE',
-            fechaCarga:new Date().toISOString(),
-            proveedor:prov||file.name.replace(/\.xlsx?$/i,''),archivo:file.name,
+          regs.push({_id:genId(),estado:'PENDIENTE',fechaCarga:new Date().toISOString(),
+            proveedor:provNombre,archivo:file.name,
             id:String(hit['ID']||''),ref:String(hit['Referencia interna']||''),
-            nombre:String(hit['Nombre']||''),barras,
+            nombre:String(hit['Nombre']||nombre),barras,
             lab:String(hit['Laboratorio/Nombre']||''),linea:String(hit['Línea de laboratorio/Nombre']||''),
-            iva:ivaC,udm,
-            pvfAnt:pvfA,pvpAnt:pvpA,pvfNuevo:pvfN,pvpNuevo:pvpN,
+            iva:ivaC,udm,pvfAnt:pvfA,pvpAnt:pvpA,pvfNuevo:pvfN,pvpNuevo:pvpN,
             pvpUnidad:calc.pvpU,pvxUnidad:calc.pvxU,pvVenta:calc.pvV,pvxFracc:calc.pvxF,
-            pctInc,
-            descripcion:desc,
-            descripcionAnt:String(hit['Descripción']||''),
-            fechaVencNueva:fvNueva,      // Fecha Venc Información → fecha actual + 1 año
-            fechaVencAnt:fvAnt!=='—'?fvAnt:'', // Fecha Venc Información_Ant → del catálogo
-            estadoProd:String(hit['Estado de Producto/Estado']||''),
-            vigencia:vigStr,obs:'',
-          });
-          nE++;
+            pctInc,descripcion:desc,descripcionAnt:String(hit['Descripción']||''),
+            fechaVencNueva:fechaMas1Y(),fechaVencAnt:fvAnt!=='—'?fvAnt:'',
+            estadoProd:String(hit['Estado de Producto/Estado']||''),vigencia:vigStr,obs:'',
+          });nE++;
         }else{
-          regs.push({
-            _id:genId(),estado:'NO ENCONTRADO',
+          const calc=calcP(pvpNuevo,iva,1);
+          const pctInc=pvpNuevo>0?((pvpNuevo-pvpAnt)/pvpNuevo*100):0;
+          regs.push({_id:genId(),
+            estado:cat?'NO ENCONTRADO':'PENDIENTE',
             fechaCarga:new Date().toISOString(),
-            proveedor:prov||file.name.replace(/\.xlsx?$/i,''),archivo:file.name,
-            id:'',ref:'',nombre:String(rw[1]||''),barras,lab:'',linea:'',
+            proveedor:provNombre,archivo:file.name,
+            id:'',ref:'',nombre,barras,lab:'',linea:'',
             iva,udm:1,pvfAnt,pvpAnt,pvfNuevo,pvpNuevo,
-            pvpUnidad:0,pvxUnidad:0,pvVenta:0,pvxFracc:0,
-            pctInc:pvpNuevo>0?((pvpNuevo-pvpAnt)/pvpNuevo*100):0,
-            descripcion:'',descripcionAnt:'',
-            fechaVencNueva:fechaMas1Y(),fechaVencAnt:'',
-            estadoProd:'',vigencia:vigStr,obs:'No encontrado en catálogo',
-          });
-          nN++;
+            pvpUnidad:calc.pvpU,pvxUnidad:calc.pvxU,pvVenta:calc.pvV,pvxFracc:calc.pvxF,
+            pctInc,descripcion:buildDesc('',vigStr,pvpAnt),descripcionAnt:'',
+            fechaVencNueva:fechaMas1Y(),fechaVencAnt:'',estadoProd:'',
+            vigencia:vigStr,obs:cat?'No encontrado en catálogo':'Cargado sin catálogo',
+          });nN++;
         }
       }
+      if(nE===0&&nN===0){alertErr('Sin productos en el archivo. Verifica que la hoja FORMATO tenga datos desde la fila 6.');return;}
       saveRegs(regs);
       document.getElementById('zone-prov').classList.remove('ok','drag');
       actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
-      if(nN>0){
-        Swal.fire({icon:'warning',title:'Comunicado guardado',html:`✅ <b>${nE}</b> encontrados<br>❌ <b>${nN}</b> no encontrados`,confirmButtonColor:'#49267F'}).then(()=>vista('registros'));
+      if(cat&&nN>0){
+        Swal.fire({icon:'warning',title:'Comunicado guardado',html:'✅ <b>'+nE+'</b> encontrados en catálogo<br>❌ <b>'+nN+'</b> no encontrados',confirmButtonColor:'#49267F'}).then(()=>vista('registros'));
+      }else if(!cat){
+        Swal.fire({icon:'success',title:'Comunicado cargado',html:'✅ <b>'+(nE+nN)+'</b> productos guardados.<br><small style="color:#9CA3AF">Carga el catálogo para enriquecer con ref. y línea.</small>',confirmButtonColor:'#49267F'}).then(()=>vista('registros'));
       }else{
         Swal.fire({icon:'success',title:'Comunicado guardado',text:nE+' productos agregados',timer:2500,showConfirmButton:false}).then(()=>vista('registros'));
       }
@@ -793,6 +758,7 @@ function leerProv(file){
   };
   r.readAsArrayBuffer(file);
 }
+
 
 // ── RENDER TABLA ─────────────────────────────────────────────────
 function renderTabla(){
@@ -1411,20 +1377,19 @@ function exportarExcel(){
 function confirmarLimpiar(){
   Swal.fire({icon:'warning',title:'¿Limpiar todos los datos?',text:'Se eliminan todos los registros y el catálogo.',showCancelButton:true,confirmButtonColor:'#FF3B1F',cancelButtonColor:'#49267F',confirmButtonText:'Sí, limpiar',cancelButtonText:'Cancelar'
   }).then(r=>{
-    if(r.isConfirmed){[LS_REG,LS_CAT].forEach(k=>localStorage.removeItem(k));CAT=null;FILAS_PLT=[];actualizarKPIs();actualizarFiltrosLaterales();Swal.fire({icon:'success',title:'Listo',timer:2000,showConfirmButton:false});}
+    if(r.isConfirmed){localStorage.removeItem(LS_REG);CAT=null;FILAS_PLT=[];actualizarKPIs();actualizarFiltrosLaterales();Swal.fire({icon:'success',title:'Listo',timer:2000,showConfirmButton:false});}
   });
 }
 function alertErr(m){Swal.fire({icon:'error',title:'Error',text:m,confirmButtonColor:'#49267F'});}
 
 // ── INICIO ───────────────────────────────────────────────────────
 (function init(){
-  const cat=getCAT();
-  if(cat){
-    document.getElementById('cat-info').textContent='Catálogo: '+cat.size+' prod.';
-    const z=document.getElementById('zone-cat');if(z)z.classList.add('ok');
-    const l=document.getElementById('cat-label');if(l)l.textContent='✔ Catálogo guardado — '+cat.size+' productos';
-  }
-  actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
+  // El catálogo NO persiste — debe cargarse cada sesión
+  // Solo los registros de la tabla persisten en localStorage
+  document.getElementById('cat-info').textContent='Sin catálogo';
+  actualizarKPIs();
+  actualizarFiltrosLaterales();
+  filtrarPlantilla();
 })();
 </script>
 </body>
