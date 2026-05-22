@@ -679,17 +679,22 @@ function leerCat(file){
 function onProv(e){const f=e.target.files[0];if(f)leerProv(f);document.getElementById('fi-prov').value='';}
 function leerProv(file){
   if(!esXls(file)){alertErr('Solo .xlsx o .xls');return;}
-  const cat=getCAT(); // puede ser null — el catálogo es opcional
+  const cat=getCAT();
+  console.log('leerProv iniciado:',file.name,file.size+'bytes','cat:'+(cat?cat.size:'null'));
   const r=new FileReader();
+  r.onerror=()=>alertErr('Error al leer el archivo.');
   r.onload=ev=>{
     try{
+      console.log('FileReader OK:',ev.target.result.byteLength+'bytes');
+      if(typeof XLSX==='undefined'){alertErr('La librería SheetJS no cargó. Verifica tu conexión a internet.');return;}
       const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,raw:true});
-      const wsName=wb.SheetNames.find(n=>
-        n.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').includes('FORMATO')
-      )||wb.SheetNames[0];
+      console.log('Hojas:',wb.SheetNames);
+      const wsName=wb.SheetNames.find(n=>n.toUpperCase().includes('FORMATO'))||wb.SheetNames[0];
+      console.log('Hoja seleccionada:',wsName);
       const ws=wb.Sheets[wsName];
-      if(!ws){alertErr('No se encontró la hoja FORMATO. Hojas: '+wb.SheetNames.join(', '));return;}
+      if(!ws){alertErr('No se encontró la hoja FORMATO. Hojas disponibles: '+wb.SheetNames.join(', '));return;}
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,cellDates:true,blankrows:false});
+      console.log('Filas:',rows.length,'Fila6:',JSON.stringify(rows[5]));
       if(!rows||rows.length<6){alertErr('El archivo tiene pocas filas ('+( rows&&rows.length||0)+'). Verifica el archivo.');return;}
       let prov='';
       if(rows[1]&&rows[1][2]!=null)prov=String(rows[1][2]).trim();
