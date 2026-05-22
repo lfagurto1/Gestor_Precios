@@ -618,8 +618,23 @@ function vista(id){_vistaOrig(id);if(window.innerWidth<=768)cerrarSidebar();}
 function getRegs(){try{return JSON.parse(localStorage.getItem(LS_REG)||'[]');}catch(e){return[];}}
 function saveRegs(arr){try{localStorage.setItem(LS_REG,JSON.stringify(arr));}catch(e){Swal.fire({icon:'warning',title:'localStorage lleno',text:'Exporta y limpia datos antiguos.',timer:4000});}}
 function getCAT(){
-  if(CAT)return CAT;
-  try{const s=JSON.parse(localStorage.getItem(LS_CAT)||'null');if(s&&s.data){CAT=new Map(s.data);return CAT;}}catch(e){}
+  if(CAT&&CAT.size>0) return CAT;
+  try{
+    const raw=localStorage.getItem(LS_CAT);
+    if(!raw) return null;
+    const s=JSON.parse(raw);
+    if(s&&Array.isArray(s.data)&&s.data.length>0){
+      CAT=new Map(s.data);
+      // Actualizar UI si el catálogo se restauró
+      const info=document.getElementById('cat-info');
+      if(info) info.textContent='Catálogo: '+CAT.size+' prod.';
+      const lbl=document.getElementById('cat-label');
+      if(lbl) lbl.textContent='✔ Catálogo guardado — '+CAT.size+' productos';
+      const zone=document.getElementById('zone-cat');
+      if(zone) zone.classList.add('ok');
+      return CAT;
+    }
+  }catch(e){console.warn('Error restaurando catálogo:',e);}
   return null;
 }
 
@@ -678,15 +693,30 @@ function leerCat(file){
 function onProv(e){const f=e.target.files[0];if(f)leerProv(f);document.getElementById('fi-prov').value='';}
 function leerProv(file){
   if(!esXls(file)){alertErr('Solo .xlsx o .xls');return;}
+  // Intentar restaurar catálogo si no está en memoria
   const cat=getCAT();
-  if(!cat){alertErr('Primero carga el Catálogo Actual (PVP).');return;}
+  if(!cat){
+    alertErr('El catálogo no está cargado.\n\nVe a "Cargar Comunicado" y sube primero el archivo Catalogo_Act_PVP.xlsx.\n\nNota: si cambiaste de navegador o dispositivo, el catálogo debe cargarse nuevamente.');
+    return;
+  }
   const r=new FileReader();
   r.onload=ev=>{
     try{
       const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,raw:true});
-      const wsName=wb.SheetNames.find(n=>n.toUpperCase().includes('FORMATO'))||wb.SheetNames[0];
+      // Buscar hoja FORMATO (insensible a mayúsculas, tildes, espacios)
+      const wsName=wb.SheetNames.find(n=>
+        n.toUpperCase().replace(/[ÁÀÄÂ]/g,'A').replace(/[ÉÈËÊ]/g,'E').includes('FORMATO')
+      )||wb.SheetNames[0];
       const ws=wb.Sheets[wsName];
+      if(!ws){
+        alertErr(`No se encontró la hoja FORMATO.\nHojas disponibles: ${wb.SheetNames.join(', ')}`);
+        return;
+      }
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,cellDates:true,blankrows:false});
+      if(!rows||rows.length<6){
+        alertErr(`El archivo tiene muy pocas filas (${rows?.length||0}). Verifica que sea el Formato_Comunicado_Cambio_Precios.xlsx correcto.`);
+        return;
+      }
       let prov='';
       if(rows[1]&&rows[1][2]!=null)prov=String(rows[1][2]).trim();
       const regs=getRegs();
