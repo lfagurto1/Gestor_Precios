@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Gestor de Cambio de Precios – CRESIO</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*{font-family:'DM Sans',sans-serif;box-sizing:border-box}
+html,body{max-width:100vw;overflow-x:hidden;background:#F0EBF9;min-height:100vh}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:#BCC8D4;border-radius:3px}
+
+/* ── LAYOUT ── */
+.layout-root{display:flex;min-height:100vh;max-width:100vw;overflow-x:hidden;}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:210px;min-height:100vh;background:#fff;
+  border-right:1px solid #E5E7EB;
+  position:fixed;top:0;left:0;
+  display:flex;flex-direction:column;
+  z-index:40;
+  box-shadow:2px 0 12px rgba(73,38,127,.07);
+  transition:transform .25s ease;
+  flex-shrink:0;
+}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:8px;}
+.sidebar .fsel,.sidebar .finp{width:100%;box-sizing:border-box;}
+
+/* ── MAIN ──
+   width:calc(100% - 210px) garantiza que no exceda el viewport
+   overflow-x:hidden evita que la tabla empuje el layout
+   min-width:0 permite que flex-child se encoja
+*/
+.main{
+  margin-left:210px;
+  width:calc(100vw - 210px);
+  max-width:calc(100vw - 210px);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  overflow-x:hidden;
+}
+
+/* ── TABLA: solo ella tiene scroll horizontal ── */
+.tbl-wrap{
+  overflow-x:auto;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  width:100%;
+  max-width:100%;
+}
+.tbl{border-collapse:collapse;font-size:12px;width:max-content;min-width:100%;}
+.tbl thead th{position:sticky;top:0;background:#49267F;color:#fff;padding:8px 8px;font-weight:500;white-space:nowrap;z-index:2;text-align:left;font-size:11px;}
+.tbl tbody tr{border-bottom:1px solid #F3F4F6;transition:background .1s;}
+.tbl tbody tr:hover{background:#F9F5FF;}
+.tbl td{padding:6px 8px;vertical-align:middle;white-space:nowrap;font-size:11px;}
+.tbl tbody tr.act-row{opacity:.5;}
+
+/* Overlay móvil */
+#sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:39;}
+#btn-menu{display:none;background:none;border:none;cursor:pointer;padding:4px;color:#49267F;}
+
+/* ── RESPONSIVE ≤768px ── */
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%);width:250px;}
+  .sidebar.open{transform:translateX(0);}
+  #sb-overlay.open{display:block;}
+  .main{margin-left:0;width:100vw;max-width:100vw;}
+  #btn-menu{display:flex;align-items:center;justify-content:center;}
+  #btn-close-sb{display:flex!important;}
+  #f-q-mob{display:block!important;}
+  #pg-sub{display:none;}
+  #cat-info{display:none;}
+  #clock{display:none;}
+  /* Botones en columna en móvil */
+  .top-actions{flex-wrap:wrap;}
+  .top-actions .br,.top-actions .bp{flex:1;justify-content:center;min-width:140px;}
+}
+
+/* ── MODAL responsive ── */
+@media(max-width:640px){
+  #modal-bg{padding:0!important;align-items:flex-end!important;}
+  #modal-bg > div{width:100%!important;max-width:100%!important;border-radius:16px 16px 0 0!important;max-height:92vh;margin-bottom:0!important;}
+}
+
+/* ── CONTENT PADDING ── */
+.content-pad{flex:1;padding:18px 20px;overflow-x:hidden;min-width:0;}
+@media(max-width:768px){
+  .content-pad{padding:12px 10px;}
+}
+
+.nav-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:500;color:#6B7280;width:100%;text-align:left;transition:all .15s;cursor:pointer;background:none;border:none}
+.nav-btn:hover{background:#F0EBF9;color:#49267F}
+.nav-btn.active{background:#F0EBF9;color:#49267F;font-weight:600}
+
+.uzone{border:2px dashed #D9E0E8;border-radius:10px;padding:16px;text-align:center;cursor:pointer;transition:all .2s}
+.uzone:hover,.uzone.drag{border-color:#49267F;background:rgba(73,38,127,.04)}
+.uzone.ok{border-color:#22c55e!important;background:rgba(34,197,94,.05)}
+
+/* Quitar spinners de inputs numéricos */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+
+/* ── Columnas ocultables según ancho de pantalla ──
+   Prioridad visible: Vigencia, Nombre, PVP Ant, PVP Nuevo, % Inc, Estado, Acciones
+   Se ocultan progresivamente: primero las menos críticas
+*/
+/* < 1400px: ocultar Cód. Barras */
+@media(max-width:1400px){
+  .col-barras{display:none;}
+}
+/* < 1200px: también ocultar F.Registro, PVF Ant, PVF Nuevo */
+@media(max-width:1200px){
+  .col-freg,.col-pvfant,.col-pvfnuevo{display:none;}
+}
+/* < 1024px: también ocultar IVA y Ref */
+@media(max-width:1024px){
+  .col-iva,.col-ref{display:none;}
+}
+
+/* pct colores */
+.pct-pos{background:#DCFCE7;color:#166534;font-weight:700;border-radius:4px;padding:2px 6px;font-family:'DM Mono',monospace;font-size:11px;display:inline-block}
+.pct-neg{background:#FEE2E2;color:#991B1B;font-weight:700;border-radius:4px;padding:2px 6px;font-family:'DM Mono',monospace;font-size:11px;display:inline-block}
+.pct-zero{background:#F3F4F6;color:#374151;font-weight:600;border-radius:4px;padding:2px 6px;font-family:'DM Mono',monospace;font-size:11px;display:inline-block}
+
+/* badge */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
+.b-pend{background:#FEF3C7;color:#92400E}
+.b-act{background:#D1FAE5;color:#065F46}
+.b-noe{background:#FEE2E2;color:#991B1B}
+
+/* form */
+.fl{font-size:10px;font-weight:700;color:#49267F;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;display:block}
+.fi{width:100%;border:1.5px solid #E5E7EB;border-radius:8px;padding:8px 11px;font-size:13px;outline:none;transition:border-color .15s;background:#fff;color:#111}
+.fi:focus{border-color:#49267F}
+.fs{width:100%;border:1.5px solid #E5E7EB;border-radius:8px;padding:8px 11px;font-size:13px;outline:none;background:#fff;cursor:pointer;color:#111}
+.fs:focus{border-color:#49267F}
+
+/* botones */
+.bp{background:#49267F;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;display:inline-flex;align-items:center;gap:7px}
+.bp:hover{background:#311A57}
+.bp:disabled{opacity:.4;cursor:not-allowed}
+.br{background:#FF3B1F;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;display:inline-flex;align-items:center;gap:7px}
+.br:hover{background:#CC2F19}
+.br:disabled{opacity:.4;cursor:not-allowed}
+.bg{background:#fff;color:#49267F;border:1.5px solid #E5E7EB;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.bg:hover{border-color:#49267F;background:#F0EBF9}
+.bsm{padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:none;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+
+/* filtros */
+.fsel{border:1.5px solid #E5E7EB;border-radius:8px;padding:7px 10px;font-size:12px;background:#fff;outline:none;cursor:pointer;color:#374151}
+.fsel:focus{border-color:#49267F}
+.finp{border:1.5px solid #E5E7EB;border-radius:8px;padding:7px 10px;font-size:12px;background:#fff;outline:none;color:#374151}
+.finp:focus{border-color:#49267F}
+
+.card{background:#fff;border-radius:14px;padding:20px}
+.sec-title{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#49267F;margin-bottom:12px}
+
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.d-pend{background:#F59E0B}
+.d-act{background:#10B981}
+.d-noe{background:#EF4444}
+
+.fade{animation:fi .2s ease}
+@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="layout-root">
+
+<!-- Overlay móvil -->
+<div id="sb-overlay" onclick="cerrarSidebar()"></div>
+
+<!-- ══ SIDEBAR ══ -->
+<aside class="sidebar">
+  <div style="padding:16px 14px 12px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border-radius:9px;background:#49267F;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#49267F;line-height:1.2">Gestor de</div>
+        <div style="font-size:13px;font-weight:700;color:#FF3B1F;line-height:1.2">Precios</div>
+      </div>
+    </div>
+    <!-- Botón cerrar solo visible en móvil -->
+    <button onclick="cerrarSidebar()" style="background:none;border:none;cursor:pointer;color:#9CA3AF;padding:4px;display:none" id="btn-close-sb" aria-label="Cerrar menú">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <nav style="padding:8px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid #F3F4F6">
+    <button class="nav-btn active" id="nb-registros" onclick="vista('registros')">
+      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      Registros
+    </button>
+    <button class="nav-btn" id="nb-carga" onclick="vista('carga')">
+      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+      Cargar Comunicado
+    </button>
+  </nav>
+
+  <!-- ── FILTROS en sidebar ── -->
+  <div class="sidebar-scroll">
+    <div style="font-size:10px;font-weight:700;color:#49267F;letter-spacing:.07em;text-transform:uppercase;padding:0 2px">Filtros</div>
+
+    <div>
+      <label style="font-size:10px;color:#9CA3AF;display:block;margin-bottom:3px">Año</label>
+      <select class="fsel" id="f-anio" onchange="renderTabla();filtrarPlantilla()" style="width:100%">
+        <option value="">Todos los años</option>
+      </select>
+    </div>
+
+    <div>
+      <label style="font-size:10px;color:#9CA3AF;display:block;margin-bottom:3px">Mes</label>
+      <select class="fsel" id="f-mes" onchange="renderTabla();filtrarPlantilla()" style="width:100%">
+        <option value="">Todos los meses</option>
+        <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+        <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+        <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+        <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+      </select>
+    </div>
+
+    <div>
+      <label style="font-size:10px;color:#9CA3AF;display:block;margin-bottom:3px">Estado</label>
+      <select class="fsel" id="f-estado" onchange="renderTabla()" style="width:100%">
+        <option value="">Todos</option>
+        <option value="PENDIENTE">Pendiente</option>
+        <option value="ACTUALIZADO">Actualizado</option>
+      </select>
+    </div>
+
+    <div style="position:relative" id="linea-wrap">
+      <label style="font-size:10px;color:#9CA3AF;display:block;margin-bottom:3px">Línea de Lab.</label>
+      <!-- Input visible -->
+      <div id="f-prov-input" onclick="toggleDropdownLinea(event)"
+        style="width:100%;border:1.5px solid #E5E7EB;border-radius:8px;padding:7px 32px 7px 10px;
+               font-size:12px;color:#374151;background:#fff;cursor:pointer;
+               user-select:none;position:relative;box-sizing:border-box;transition:border-color .15s"
+        onmouseover="this.style.borderColor='#49267F'" onmouseout="this.style.borderColor=document.getElementById('f-prov-drop').style.display==='block'?'#49267F':'#E5E7EB'">
+        <span id="f-prov-label" style="color:#9CA3AF">Todas las líneas</span>
+        <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:10px;pointer-events:none">▼</span>
+      </div>
+      <!-- Dropdown -->
+      <div id="f-prov-drop" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 3px);
+           background:#fff;border:1.5px solid #D9CCEF;border-radius:8px;
+           box-shadow:0 4px 16px rgba(73,38,127,.14);z-index:200;overflow:hidden">
+        <!-- Buscador fijo arriba -->
+        <div style="padding:8px 10px;border-bottom:1px solid #F3F4F6;background:#fff">
+          <input id="f-prov-search" type="text" placeholder="Buscar línea..."
+            style="width:100%;border:1.5px solid #E5E7EB;border-radius:6px;padding:6px 10px;
+                   font-size:12px;outline:none;box-sizing:border-box;font-family:'DM Sans',sans-serif"
+            oninput="filtrarOpcionesLinea()"
+            onfocus="this.style.borderColor='#49267F'"
+            onblur="this.style.borderColor='#E5E7EB'"
+            autocomplete="off"/>
+        </div>
+        <!-- Opciones -->
+        <div id="f-prov-opts" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+      <!-- Select oculto para valor real -->
+      <select id="f-prov" style="display:none" onchange="renderTabla()">
+        <option value="">Todas las líneas</option>
+      </select>
+    </div>
+
+    <div>
+      <label style="font-size:10px;color:#9CA3AF;display:block;margin-bottom:3px">Buscar</label>
+      <input class="finp" id="f-q" type="text" placeholder="Nombre, código, ref…" oninput="renderTabla()" style="width:100%"/>
+    </div>
+
+    <!-- Filtros plantilla (usan los mismos selectores de mes/año) -->
+    <!-- p-mes y p-anio ocultos pero existentes para que filtrarPlantilla() funcione -->
+    <select id="p-mes" style="display:none" onchange="filtrarPlantilla()"><option value=""></option></select>
+    <select id="p-anio" style="display:none"><option value=""></option></select>
+
+    <!-- Separador estadísticas -->
+    <div style="border-top:1px solid #F3F4F6;padding-top:10px;margin-top:4px">
+      <div style="font-size:10px;font-weight:700;color:#49267F;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Resumen</div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+        <span style="font-size:11px;color:#9CA3AF">Total</span>
+        <span id="sk-total" style="font-size:12px;font-weight:700;color:#49267F">0</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+        <span style="font-size:11px;color:#9CA3AF">Pendientes</span>
+        <span id="sk-pend" style="font-size:12px;font-weight:700;color:#F59E0B">0</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:11px;color:#9CA3AF">Actualizados</span>
+        <span id="sk-act" style="font-size:12px;font-weight:700;color:#10B981">0</span>
+      </div>
+      <!-- Botón limpiar filtros -->
+      <button onclick="limpiarFiltros()" id="btn-limpiar-filtros"
+        style="width:100%;padding:7px 10px;border-radius:8px;border:1.5px solid #E5E7EB;
+               background:#fff;font-size:11px;font-weight:600;color:#6B7280;cursor:pointer;
+               display:flex;align-items:center;justify-content:center;gap:5px;
+               transition:all .15s;font-family:'DM Sans',sans-serif"
+        onmouseover="this.style.borderColor='#49267F';this.style.color='#49267F';this.style.background='#F0EBF9'"
+        onmouseout="this.style.borderColor='#E5E7EB';this.style.color='#6B7280';this.style.background='#fff'">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+        Limpiar filtros
+      </button>
+    </div>
+  </div>
+
+  <!-- Acciones -->
+  <div style="padding:8px;border-top:1px solid #F3F4F6;display:flex;flex-direction:column;gap:2px">
+    <button class="nav-btn" onclick="exportarExcel()" style="color:#49267F">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      Exportar historial
+    </button>
+  </div>
+
+  <div style="margin:0 8px 10px;padding:8px;background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px">
+    <p style="font-size:10px;color:#92400E;line-height:1.4;margin:0">⚠ Datos en <strong>localStorage</strong>. No reemplaza BD corporativa.</p>
+  </div>
+</aside>
+
+<!-- ══ MAIN ══ -->
+<main class="main">
+  <!-- Topbar -->
+  <div style="background:#fff;border-bottom:1px solid #F3F4F6;padding:12px 22px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30;box-shadow:0 1px 6px rgba(73,38,127,.06)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <!-- Hamburguesa solo en móvil -->
+      <button id="btn-menu" onclick="abrirSidebar()" aria-label="Menú">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div>
+        <h1 id="pg-title" style="font-size:14px;font-weight:700;color:#49267F;margin:0">Registros de Cambio de Precios</h1>
+        <p id="pg-sub" style="font-size:11px;color:#9CA3AF;margin:1px 0 0">Gestiona, filtra y actualiza los cambios de precio</p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:11px;color:#9CA3AF" id="cat-info">Sin catálogo</span>
+      <span style="font-size:11px;color:#BCC8D4;font-family:'DM Mono',monospace" id="clock"></span>
+    </div>
+  </div>
+
+  <div class="content-pad">
+
+    <!-- ════ REGISTROS ════ -->
+    <div id="v-registros" class="fade">
+
+      <!-- Filtros + acciones -->
+      <!-- Barra superior: solo botones -->
+      <div class="top-actions" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;justify-content:flex-end">
+        <input class="finp" id="f-q-mob" type="text" placeholder="Buscar…" oninput="document.getElementById('f-q').value=this.value;renderTabla()" style="flex:1;min-width:140px;display:none"/>
+        <button class="br" id="btn-plt" onclick="exportarPlantilla()" disabled>
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+          Descargar Plantilla <span id="plt-cnt" style="font-size:10px;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:10px"></span>
+        </button>
+        <button class="bp" onclick="abrirManual()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          Agregar manual
+        </button>
+      </div>
+
+      <!-- Info plantilla -->
+      <div id="plt-info" style="display:none;margin-bottom:10px">
+        <span style="font-size:11px;background:#FFF1EE;color:#FF3B1F;border-radius:6px;padding:4px 10px;font-weight:600" id="plt-info-txt"></span>
+      </div>
+
+      <!-- TABLA -->
+      <div class="card" style="padding:0;border-radius:14px;">
+        <div class="tbl-wrap" style="max-height:calc(100vh - 200px)">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Vigencia</th>
+                <th class="col-freg">F. Registro</th>
+                <th class="col-fact">F. Actualización</th>
+                <th class="col-ref">Ref.</th>
+                <th>Nombre del Producto</th>
+                <th class="col-barras">Cód. Barras</th>
+                <th>Línea de Lab.</th>
+                <th class="col-iva" style="text-align:center">IVA %</th>
+                <th class="col-pvfant" style="text-align:right">PVF Ant.</th>
+                <th style="text-align:right">PVP Ant.</th>
+                <th class="col-pvfnuevo" style="text-align:right">PVF Nuevo</th>
+                <th style="text-align:right">PVP Nuevo</th>
+                <th style="text-align:center">% Inc.</th>
+                <th>Estado</th>
+                <th style="text-align:center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-main">
+              <tr><td colspan="16" style="text-align:center;padding:40px;color:#9CA3AF;font-size:13px">Sin registros. Agrega manualmente o carga un comunicado Excel.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:8px 14px;border-top:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;color:#9CA3AF" id="tbl-count">0 registros</span>
+          <button class="bsm" id="btn-todos" onclick="marcarTodos()" style="display:none;background:#D1FAE5;color:#065F46">✓ Marcar todos Actualizados</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ CARGA ════ -->
+    <div id="v-carga" class="fade" style="display:none">
+      <div style="max-width:680px;display:flex;flex-direction:column;gap:14px">
+
+        <!-- Catálogo -->
+        <div class="card">
+          <div class="sec-title">📦 Catálogo Actual (PVP)</div>
+          <p style="font-size:12px;color:#6B7280;margin:0 0 10px">Cárgalo una vez. Se guarda en el navegador.<br>Archivo: <code style="background:#F0EBF9;color:#49267F;padding:1px 5px;border-radius:4px;font-size:11px">Catalogo_Act_PVP.xlsx</code></p>
+          <div class="uzone" id="zone-cat" onclick="document.getElementById('fi-cat').click()">
+            <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" stroke-width="1.5" style="margin:0 auto 6px"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <p id="cat-label" style="font-size:12px;color:#9CA3AF;margin:0">Clic o arrastra · .xlsx / .xls</p>
+          </div>
+          <input type="file" id="fi-cat" accept=".xlsx,.xls" style="display:none" onchange="onCat(event)"/>
+        </div>
+
+        <!-- Comunicado -->
+        <div class="card">
+          <div class="sec-title">📨 Comunicado del Proveedor</div>
+          <p style="font-size:12px;color:#6B7280;margin:0 0 10px">Cada comunicado se cruza con el catálogo y se agrega a la tabla de Registros.<br>Archivo: <code style="background:#FFF1EE;color:#FF3B1F;padding:1px 5px;border-radius:4px;font-size:11px">Formato_Comunicado_Cambio_Precios.xlsx</code></p>
+          <div class="uzone" id="zone-prov" onclick="document.getElementById('fi-prov').click()">
+            <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" stroke-width="1.5" style="margin:0 auto 6px"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <p style="font-size:12px;color:#9CA3AF;margin:0">Clic o arrastra · .xlsx / .xls</p>
+          </div>
+          <input type="file" id="fi-prov" accept=".xlsx,.xls" style="display:none" onchange="onProv(event)"/>
+          <p style="font-size:11px;color:#9CA3AF;margin:8px 0 0">Productos no encontrados en el catálogo se guardan como <strong>NO ENCONTRADO</strong>.</p>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<!-- ══ MODAL MANUAL ══ -->
+<div id="modal-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:50;align-items:flex-start;justify-content:center;padding-top:40px;overflow-y:auto" onclick="if(event.target===this)cerrarModal()">
+  <div style="background:#fff;border-radius:16px;padding:22px;width:580px;max-width:96vw;box-shadow:0 20px 60px rgba(0,0,0,.2);margin-bottom:40px" onclick="event.stopPropagation()">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h2 style="font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#49267F;margin:0">Carga Manual de Producto</h2>
+      <button onclick="cerrarModal()" style="background:none;border:none;font-size:20px;color:#9CA3AF;cursor:pointer;line-height:1;padding:0">×</button>
+    </div>
+
+    <!-- Buscador en catálogo -->
+    <div style="background:#F0EBF9;border-radius:10px;padding:12px;margin-bottom:14px">
+      <label class="fl" style="color:#49267F;margin-bottom:6px">🔍 Buscar en catálogo (por ref., código de barras o nombre)</label>
+      <input class="fi" id="m-busq" placeholder="Escribe ref. interna, código de barras o parte del nombre…" oninput="buscarEnCatalogo()" autocomplete="off"/>
+      <!-- Dropdown resultados -->
+      <div id="m-resultados" style="display:none;margin-top:6px;background:#fff;border:1.5px solid #D9CCEF;border-radius:8px;max-height:180px;overflow-y:auto;box-shadow:0 4px 16px rgba(73,38,127,.12)"></div>
+      <!-- Producto seleccionado -->
+      <div id="m-seleccionado" style="display:none;margin-top:8px;background:#fff;border:1.5px solid #22c55e;border-radius:8px;padding:8px 12px;display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div id="m-sel-nombre" style="font-size:12px;font-weight:600;color:#111"></div>
+            <div id="m-sel-info" style="font-size:11px;color:#6B7280;margin-top:2px"></div>
+          </div>
+          <button onclick="limpiarSeleccion()" style="background:none;border:none;color:#9CA3AF;cursor:pointer;font-size:16px;line-height:1">×</button>
+        </div>
+      </div>
+      <p style="font-size:10px;color:#9CA3AF;margin:6px 0 0">Si el producto no está en catálogo, llena los campos manualmente abajo.</p>
+    </div>
+
+    <!-- Campos del formulario -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="grid-column:1/-1">
+        <label class="fl">Nombre del producto *</label>
+        <input class="fi" id="m-nombre" placeholder="Nombre del producto"/>
+      </div>
+      <div><label class="fl">Referencia interna</label><input class="fi" id="m-ref" placeholder="Ej: 79548"/></div>
+      <div><label class="fl">Código de barras</label><input class="fi" id="m-barras" placeholder="Ej: 7861098501380"/></div>
+      <div><label class="fl">Laboratorio *</label><input class="fi" id="m-lab" placeholder="Nombre del laboratorio"/></div>
+      <div><label class="fl">Línea de laboratorio</label><input class="fi" id="m-linea" placeholder="Línea"/></div>
+      <div><label class="fl">IVA %</label>
+        <input class="fi" id="m-iva" readonly placeholder="Se llena del catálogo" style="background:#F9FAFB;color:#374151;cursor:default"/>
+      </div>
+
+      <!-- Separador precios anteriores -->
+      <div style="grid-column:1/-1;background:#F0FDF4;border:1.5px solid #BBF7D0;border-radius:8px;padding:10px 12px;margin-top:4px">
+        <div style="font-size:10px;font-weight:700;color:#166534;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">📗 Precios Anteriores (del catálogo)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="fl" style="color:#166534">PVF Sin IVA — Anterior</label>
+            <input class="fi" id="m-pvfant" type="number" step="0.01" min="0" placeholder="0.00" oninput="calcPctM()" style="border-color:#86EFAC"/>
+          </div>
+          <div>
+            <label class="fl" style="color:#166534">PVP Con IVA — Anterior *</label>
+            <input class="fi" id="m-pvpant" type="number" step="0.01" min="0" placeholder="0.00" oninput="calcPctM()" style="border-color:#86EFAC"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Separador precios nuevos + fecha de vigencia -->
+      <div style="grid-column:1/-1;background:#FFFBEB;border:1.5px solid #FCD34D;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;font-weight:700;color:#92400E;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">📒 Precios Nuevos — completa aquí</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="fl" style="color:#92400E">PVF Sin IVA — Nuevo</label>
+            <input class="fi" id="m-pvfnuevo" type="number" step="0.01" min="0" placeholder="0.00" style="border-color:#FCD34D;background:#FFFDE7"/>
+          </div>
+          <div>
+            <label class="fl" style="color:#92400E">PVP Con IVA — Nuevo *</label>
+            <input class="fi" id="m-pvpnuevo" type="number" step="0.01" min="0" placeholder="0.00" oninput="calcPctM()" style="border-color:#FCD34D;background:#FFFDE7"/>
+          </div>
+          <div>
+            <label class="fl" style="color:#92400E">Fecha de vigencia *</label>
+            <input class="fi" id="m-vig" type="date" style="border-color:#FCD34D;background:#FFFDE7"/>
+          </div>
+          <div>
+            <label class="fl">% Incremento</label>
+            <input class="fi" id="m-pct" readonly placeholder="Auto" style="background:#F9FAFB;color:#6B7280;font-weight:600"/>
+          </div>
+        </div>
+      </div>
+
+      <div style="grid-column:1/-1"><label class="fl">Observación</label><input class="fi" id="m-obs" placeholder="Nota opcional"/></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="bp" onclick="guardarManual(false)" style="flex:1;justify-content:center">Agregar a la tabla</button>
+      <button class="bg" onclick="guardarManual(true)" style="white-space:nowrap" title="Guarda este producto y deja el modal abierto para agregar otro">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        Agregar otro
+      </button>
+      <button class="bg" onclick="limpiarManual()">Limpiar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ JS ══════════ -->
+<script>
+'use strict';
+const LS_REG='pvc_reg_v3', LS_CAT='pvc_cat_v2';
+let CAT=null;
+const MESES=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+// ── UTILS ────────────────────────────────────────────────────────
+const esc=v=>v==null?'':String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const fmt$=n=>{const v=parseFloat(n);return isNaN(v)?'—':'$\u00a0'+v.toFixed(2);};
+const fmtPct=n=>{const v=parseFloat(n);return isNaN(v)||!isFinite(v)?'—':v.toFixed(2)+'%';};
+const esXls=f=>/\.(xlsx|xls)$/i.test(f.name);
+const pad=n=>String(n).padStart(2,'0');
+const genId=()=>'r'+Date.now()+Math.random().toString(36).substr(2,4);
+
+function fmtDate(v){
+  if(!v&&v!==0)return'—';
+  if(v instanceof Date)return`${pad(v.getDate())}/${pad(v.getMonth()+1)}/${v.getFullYear()}`;
+  if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?`${pad(d.d)}/${pad(d.m)}/${d.y}`:String(v);}
+  const s=String(v).trim();
+  const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(iso)return`${iso[3]}/${iso[2]}/${iso[1]}`;
+  return s;
+}
+function parseFechaYM(s){
+  if(!s||s==='—')return null;
+  const str=String(s).trim();
+  const a=str.match(/^(\d{2})\/(\d{2})\/(\d{4})/);if(a)return{y:+a[3],m:+a[2]};
+  const b=str.match(/^(\d{4})-(\d{2})/);if(b)return{y:+b[1],m:+b[2]};
+  return null;
+}
+function fechaMas1Y(){
+  const d=new Date();d.setFullYear(d.getFullYear()+1);
+  return`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+}
+function buildDesc(descActual,vigStr,pvpAnt){
+  const l=String(descActual||'').replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim();
+  const fd=vigStr&&vigStr!=='—'?vigStr.replace(/\//g,'-'):'';
+  const msg=`CAMBIO DE PRECIOS ${fd} PVP ANT: $\u00a0${parseFloat(pvpAnt||0).toFixed(2)}`;
+  if(!l)return msg;
+  const pat=/\s*\/?\s*CAMBIO DE PRECIOS[^$]*\$[\s\d.]+/i;
+  if(pat.test(l)){const s=l.replace(pat,'').trim();return s?s+' / '+msg:msg;}
+  return l+' / '+msg;
+}
+function calcP(pvpN,iva,udm){
+  const div=iva===15?1.15:iva===12?1.12:1;
+  const u=Math.max(parseFloat(udm)||1,1);
+  const pvpU=Math.round(pvpN/div*1e6)/1e6;
+  return{pvpU,pvxU:pvpU,pvV:Math.round(pvpU/u*1e6)/1e6,pvxF:Math.round(pvpU/u*1e6)/1e6};
+}
+
+// ── LIMPIAR FILTROS ──────────────────────────────────────────────
+function limpiarFiltros(){
+  // Selectores normales
+  ['f-mes','f-anio','f-estado'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  // Buscador texto
+  const fq=document.getElementById('f-q');if(fq)fq.value='';
+  const fqm=document.getElementById('f-q-mob');if(fqm)fqm.value='';
+  // Dropdown línea personalizado
+  seleccionarLinea('');
+  renderTabla();
+}
+
+// ── SIDEBAR RESPONSIVE ───────────────────────────────────────────
+function abrirSidebar(){
+  document.querySelector('.sidebar').classList.add('open');
+  document.getElementById('sb-overlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function cerrarSidebar(){
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sb-overlay').classList.remove('open');
+  document.body.style.overflow='';
+}
+// Cerrar sidebar al navegar en móvil
+const _vistaOrig=vista;
+function vista(id){_vistaOrig(id);if(window.innerWidth<=768)cerrarSidebar();}
+
+// Reloj
+(function tick(){const e=document.getElementById('clock');if(e){const d=new Date();e.textContent=pad(d.getHours())+':'+pad(d.getMinutes());}setTimeout(tick,10000);})();
+
+// ── STORAGE ──────────────────────────────────────────────────────
+function getRegs(){try{return JSON.parse(localStorage.getItem(LS_REG)||'[]');}catch(e){return[];}}
+function saveRegs(arr){try{localStorage.setItem(LS_REG,JSON.stringify(arr));}catch(e){Swal.fire({icon:'warning',title:'localStorage lleno',text:'Exporta y limpia datos antiguos.',timer:4000});}}
+function getCAT(){
+  if(CAT)return CAT;
+  try{const s=JSON.parse(localStorage.getItem(LS_CAT)||'null');if(s&&s.data){CAT=new Map(s.data);return CAT;}}catch(e){}
+  return null;
+}
+
+// ── NAVEGACIÓN ───────────────────────────────────────────────────
+const TITS={registros:['Registros de Cambio de Precios','Gestiona, filtra y actualiza los cambios de precio'],carga:['Cargar Comunicado','Catálogo base + comunicados de proveedores']};
+function vista(id){
+  ['registros','carga'].forEach(k=>{
+    const el=document.getElementById('v-'+k);if(el)el.style.display=k===id?'block':'none';
+    const nb=document.getElementById('nb-'+k);if(nb)nb.classList.toggle('active',k===id);
+  });
+  const[t,s]=TITS[id]||[id,''];
+  document.getElementById('pg-title').textContent=t;
+  document.getElementById('pg-sub').textContent=s;
+  if(id==='registros'){actualizarFiltrosLaterales();filtrarPlantilla();}
+}
+
+// ── DRAG DROP ────────────────────────────────────────────────────
+['zone-cat','zone-prov'].forEach(zid=>{
+  const el=document.getElementById(zid);if(!el)return;
+  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('drag');});
+  el.addEventListener('dragleave',()=>el.classList.remove('drag'));
+  el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('drag');const f=e.dataTransfer.files[0];if(!f)return;zid==='zone-cat'?leerCat(f):leerProv(f);});
+});
+
+// ── CATÁLOGO ─────────────────────────────────────────────────────
+function onCat(e){const f=e.target.files[0];if(f)leerCat(f);document.getElementById('fi-cat').value='';}
+function leerCat(file){
+  if(!esXls(file)){alertErr('Solo .xlsx o .xls');return;}
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,raw:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true,cellDates:true});
+      if(!rows.length){alertErr('Catálogo vacío.');return;}
+      const req=['Código de barras','Nombre','Impuestos del cliente/Importe','UdM de compra/Proporción mayor'];
+      const falt=req.filter(c=>!Object.keys(rows[0]).includes(c));
+      if(falt.length){alertErr('Columnas faltantes:\n'+falt.join(', '));return;}
+      const m=new Map();const dups=[];
+      rows.forEach(rw=>{const b=String(rw['Código de barras']||'').trim();if(!b)return;if(m.has(b))dups.push(b);m.set(b,rw);});
+      CAT=m;
+      try{localStorage.setItem(LS_CAT,JSON.stringify({ts:Date.now(),file:file.name,total:m.size,data:Array.from(m.entries())}));}catch(e){console.warn('LS lleno');}
+      document.getElementById('zone-cat').classList.add('ok');
+      document.getElementById('cat-label').textContent='✔ '+file.name+' — '+m.size+' productos';
+      document.getElementById('cat-info').textContent='Catálogo: '+m.size+' prod.';
+      if(dups.length)Swal.fire({icon:'warning',title:'Duplicados',text:dups.length+' código(s) duplicado(s).',timer:4000,showConfirmButton:false});
+      Swal.fire({icon:'success',title:'Catálogo cargado',text:m.size+' productos',timer:2000,showConfirmButton:false});
+    }catch(err){alertErr('Error: '+err.message);}
+  };
+  r.readAsArrayBuffer(file);
+}
+
+// ── COMUNICADO PROVEEDOR ─────────────────────────────────────────
+// Hoja FORMATO: fila 2[1] col C[2]=razón social; datos desde fila 6[5]
+// Índices: [0]=barras [1]=nombre [2]=IVA(decimal) [3]=PVFant [4]=PVPant [5]=PVFnuevo [6]=PVPnuevo [7]=vigencia
+function onProv(e){const f=e.target.files[0];if(f)leerProv(f);document.getElementById('fi-prov').value='';}
+function leerProv(file){
+  if(!esXls(file)){alertErr('Solo .xlsx o .xls');return;}
+  const cat=getCAT();
+  if(!cat){alertErr('Primero carga el Catálogo Actual (PVP).');return;}
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array',cellDates:true,raw:true});
+      const wsName=wb.SheetNames.find(n=>n.toUpperCase().includes('FORMATO'))||wb.SheetNames[0];
+      const ws=wb.Sheets[wsName];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,cellDates:true,blankrows:false});
+      let prov='';
+      if(rows[1]&&rows[1][2]!=null)prov=String(rows[1][2]).trim();
+      const regs=getRegs();
+      let nE=0,nN=0;
+      for(let i=5;i<rows.length;i++){
+        const rw=rows[i];if(!rw)continue;
+        const barras=rw[0]!=null?String(rw[0]).trim():'';if(!barras)continue;
+        let iva=parseFloat(rw[2])||0;
+        if(iva>0&&iva<=1)iva=Math.round(iva*100);else iva=Math.round(iva);
+        const pvfAnt  =parseFloat(rw[3])||0;
+        const pvpAnt  =parseFloat(rw[4])||0;
+        const pvfNuevo=parseFloat(rw[5])||0;
+        const pvpNuevo=parseFloat(rw[6])||0;
+        const vigencia=rw[7];
+        const vigStr  =fmtDate(vigencia);
+        const hit=cat.get(barras);
+        if(hit){
+          const ivaC=parseFloat(hit['Impuestos del cliente/Importe'])||iva;
+          const udm =parseFloat(hit['UdM de compra/Proporción mayor'])||1;
+          const pvpA=parseFloat(hit['Precio (PVP+IVA)'])||pvpAnt;
+          const pvfA=parseFloat(hit['Precio (PVF)'])||pvfAnt;
+          const pvpN=pvpNuevo;const pvfN=pvfNuevo||pvfA;
+          const calc=calcP(pvpN,ivaC,udm);
+          const pctInc=pvpN>0?((pvpN-pvpA)/pvpN*100):0;
+          // Fecha de Vencimiento Informacion_Ant: viene del catálogo (puede estar vacía)
+          const fvAnt=fmtDate(hit['Fecha de Vencimiento Informacion']);
+          // Fecha de Vencimiento Informacion: siempre fecha actual + 1 año
+          const fvNueva=fechaMas1Y();
+          const desc=buildDesc(hit['Descripción'],vigStr,pvpA);
+          regs.push({
+            _id:genId(),estado:'PENDIENTE',
+            fechaCarga:new Date().toISOString(),
+            proveedor:prov||file.name.replace(/\.xlsx?$/i,''),archivo:file.name,
+            id:String(hit['ID']||''),ref:String(hit['Referencia interna']||''),
+            nombre:String(hit['Nombre']||''),barras,
+            lab:String(hit['Laboratorio/Nombre']||''),linea:String(hit['Línea de laboratorio/Nombre']||''),
+            iva:ivaC,udm,
+            pvfAnt:pvfA,pvpAnt:pvpA,pvfNuevo:pvfN,pvpNuevo:pvpN,
+            pvpUnidad:calc.pvpU,pvxUnidad:calc.pvxU,pvVenta:calc.pvV,pvxFracc:calc.pvxF,
+            pctInc,
+            descripcion:desc,
+            descripcionAnt:String(hit['Descripción']||''),
+            fechaVencNueva:fvNueva,      // Fecha Venc Información → fecha actual + 1 año
+            fechaVencAnt:fvAnt!=='—'?fvAnt:'', // Fecha Venc Información_Ant → del catálogo
+            estadoProd:String(hit['Estado de Producto/Estado']||''),
+            vigencia:vigStr,obs:'',
+          });
+          nE++;
+        }else{
+          regs.push({
+            _id:genId(),estado:'NO ENCONTRADO',
+            fechaCarga:new Date().toISOString(),
+            proveedor:prov||file.name.replace(/\.xlsx?$/i,''),archivo:file.name,
+            id:'',ref:'',nombre:String(rw[1]||''),barras,lab:'',linea:'',
+            iva,udm:1,pvfAnt,pvpAnt,pvfNuevo,pvpNuevo,
+            pvpUnidad:0,pvxUnidad:0,pvVenta:0,pvxFracc:0,
+            pctInc:pvpNuevo>0?((pvpNuevo-pvpAnt)/pvpNuevo*100):0,
+            descripcion:'',descripcionAnt:'',
+            fechaVencNueva:fechaMas1Y(),fechaVencAnt:'',
+            estadoProd:'',vigencia:vigStr,obs:'No encontrado en catálogo',
+          });
+          nN++;
+        }
+      }
+      saveRegs(regs);
+      document.getElementById('zone-prov').classList.remove('ok','drag');
+      actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
+      if(nN>0){
+        Swal.fire({icon:'warning',title:'Comunicado guardado',html:`✅ <b>${nE}</b> encontrados<br>❌ <b>${nN}</b> no encontrados`,confirmButtonColor:'#49267F'}).then(()=>vista('registros'));
+      }else{
+        Swal.fire({icon:'success',title:'Comunicado guardado',text:nE+' productos agregados',timer:2500,showConfirmButton:false}).then(()=>vista('registros'));
+      }
+    }catch(err){alertErr('Error: '+err.message);console.error(err);}
+  };
+  r.readAsArrayBuffer(file);
+}
+
+// ── RENDER TABLA ─────────────────────────────────────────────────
+function renderTabla(){
+  const mes =parseInt(document.getElementById('f-mes')?.value)||0;
+  const anio=parseInt(document.getElementById('f-anio')?.value)||0;
+  const est =(document.getElementById('f-estado')?.value||'').trim();
+  const linea=(window._lineaSeleccionada||'').trim();  // leer directo del estado del dropdown
+  const q   =(document.getElementById('f-q')?.value||'').toLowerCase().trim();
+  let regs=getRegs();
+  if(mes||anio||est||linea||q){
+    regs=regs.filter(f=>{
+      const ym=parseFechaYM(f.vigencia);
+      if(mes   &&ym&&ym.m!==mes)   return false;
+      if(anio  &&ym&&ym.y!==anio)  return false;
+      if(est   &&f.estado!==est)   return false;
+      if(linea &&f.linea!==linea)  return false;
+      if(q){const h=[f.nombre,f.barras,f.ref,f.lab,f.linea,f.proveedor,f.vigencia].join(' ').toLowerCase();if(!h.includes(q))return false;}
+      return true;
+    });
+  }
+  document.getElementById('tbl-count').textContent=regs.length+' registros';
+  const hayPend=regs.some(r=>r.estado==='PENDIENTE');
+  document.getElementById('btn-todos').style.display=hayPend?'inline-flex':'none';
+  const tbody=document.getElementById('tbody-main');
+  if(!regs.length){
+    tbody.innerHTML='<tr><td colspan="15" style="text-align:center;padding:40px;color:#9CA3AF;font-size:13px">Sin registros para este filtro.</td></tr>';
+    return;
+  }
+  // Orden DESC: los más nuevos (agregados recientemente) primero
+  regs = regs.slice().reverse();
+  // Helper: fecha ISO → DD/MM/AAAA
+  const fmtISO=s=>{if(!s)return'—';const d=new Date(s);if(isNaN(d))return'—';return`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;};
+  tbody.innerHTML=regs.map((f,i)=>{
+    const pct=parseFloat(f.pctInc||0);
+    const pctEl=pct>0?`<span class="pct-pos">▲ ${fmtPct(pct)}</span>`:pct<0?`<span class="pct-neg">▼ ${fmtPct(pct)}</span>`:`<span class="pct-zero">${fmtPct(pct)}</span>`;
+    const isAct=f.estado==='ACTUALIZADO';
+    const badgeCls=isAct?'b-act':f.estado==='NO ENCONTRADO'?'b-noe':'b-pend';
+    const dotCls=isAct?'d-act':f.estado==='NO ENCONTRADO'?'d-noe':'d-pend';
+    const fReg=fmtISO(f.fechaCarga);
+    const fAct=isAct?fmtISO(f.fechaAct):'—';
+    return`<tr class="${isAct?'act-row':''}">
+      <td style="font-weight:600;color:#49267F;white-space:nowrap">
+        <span style="display:inline-flex;align-items:center;gap:4px">
+          ${esc(f.vigencia||'—')}
+          <button onclick="editarVigencia('${f._id}')" title="Editar fecha de vigencia"
+            style="background:none;border:none;cursor:pointer;padding:0;color:#9CA3AF;font-size:11px;line-height:1;flex-shrink:0" onmouseover="this.style.color='#49267F'" onmouseout="this.style.color='#9CA3AF'">✏</button>
+        </span>
+      </td>
+      <td class="col-freg" style="color:#6B7280">${esc(fReg)}</td>
+      <td class="col-fact" style="${isAct?'color:#065F46;font-weight:500':'color:#9CA3AF'}">${esc(fAct)}</td>
+      <td class="col-ref" style="font-family:'DM Mono',monospace;color:#9CA3AF">${esc(f.ref||'—')}</td>
+      <td style="font-weight:500;max-width:180px;white-space:normal;line-height:1.3">${esc(f.nombre||'—')}</td>
+      <td class="col-barras" style="font-family:'DM Mono',monospace;color:#6B7280">${esc(f.barras||'—')}</td>
+      <td style="color:#6B7280;max-width:120px;white-space:normal">${esc(f.linea||'—')}</td>
+      <td class="col-iva" style="text-align:center">${esc(f.iva||0)}%</td>
+      <td class="col-pvfant" style="text-align:right;font-family:'DM Mono',monospace">${fmt$(f.pvfAnt)}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${fmt$(f.pvpAnt)}</td>
+      <td class="col-pvfnuevo" style="text-align:right;font-family:'DM Mono',monospace;color:#059669;font-weight:600">${fmt$(f.pvfNuevo)}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace;color:#49267F;font-weight:700">${fmt$(f.pvpNuevo)}</td>
+      <td style="text-align:center">${pctEl}</td>
+      <td><span class="badge ${badgeCls}"><span class="dot ${dotCls}"></span>${esc(f.estado)}</span></td>
+      <td style="text-align:center;white-space:nowrap">
+        ${!isAct?`<button class="bsm" onclick="marcarAct('${f._id}')" style="background:#D1FAE5;color:#065F46" title="Marcar como actualizado">✓</button>`
+                :`<button class="bsm" onclick="marcarPend('${f._id}')" style="background:#FEF3C7;color:#92400E" title="Volver a pendiente">↩</button>`}
+        <button class="bsm btn-del" onclick="eliminar('${f._id}')" style="margin-left:4px;background:#FEE2E2;color:#991B1B" title="Eliminar">✕</button>
+      </td>
+    </tr>`;}).join('');
+}
+
+// ── ESTADO ───────────────────────────────────────────────────────
+function marcarAct(id){const r=getRegs();const x=r.find(e=>e._id===id);if(x){x.estado='ACTUALIZADO';x.fechaAct=new Date().toISOString();}saveRegs(r);actualizarKPIs();renderTabla();}
+function marcarPend(id){const r=getRegs();const x=r.find(e=>e._id===id);if(x){x.estado='PENDIENTE';delete x.fechaAct;}saveRegs(r);actualizarKPIs();renderTabla();}
+function marcarTodos(){
+  const mes=parseInt(document.getElementById('f-mes')?.value)||0;
+  const anio=parseInt(document.getElementById('f-anio')?.value)||0;
+  const r=getRegs();let n=0;
+  r.forEach(x=>{
+    if(x.estado!=='PENDIENTE')return;
+    const ym=parseFechaYM(x.vigencia);
+    if(mes&&ym&&ym.m!==mes)return;
+    if(anio&&ym&&ym.y!==anio)return;
+    x.estado='ACTUALIZADO';x.fechaAct=new Date().toISOString();n++;
+  });
+  saveRegs(r);actualizarKPIs();renderTabla();
+  Swal.fire({icon:'success',title:n+' marcados como Actualizados',timer:2000,showConfirmButton:false});
+}
+function eliminar(id){
+  // Paso 1: confirmar
+  Swal.fire({
+    icon:'warning',
+    title:'¿Eliminar este registro?',
+    text:'Esta acción no se puede deshacer.',
+    showCancelButton:true,
+    confirmButtonColor:'#FF3B1F',cancelButtonColor:'#49267F',
+    confirmButtonText:'Sí, eliminar',cancelButtonText:'Cancelar'
+  }).then(r=>{
+    if(!r.isConfirmed)return;
+    // Paso 2: pedir clave
+    Swal.fire({
+      title:'Ingresa la clave de autorización',
+      input:'password',
+      inputPlaceholder:'Clave de seguridad',
+      inputAttributes:{autocomplete:'off'},
+      showCancelButton:true,
+      confirmButtonColor:'#FF3B1F',cancelButtonColor:'#49267F',
+      confirmButtonText:'Confirmar',cancelButtonText:'Cancelar',
+      preConfirm:(clave)=>{
+        if(clave!=='12345'){
+          Swal.showValidationMessage('Clave incorrecta. Operación cancelada.');
+          return false;
+        }
+        return true;
+      }
+    }).then(r2=>{
+      if(r2.isConfirmed){
+        saveRegs(getRegs().filter(x=>x._id!==id));
+        actualizarKPIs();actualizarFiltrosLaterales();renderTabla();
+        Swal.fire({icon:'success',title:'Registro eliminado',timer:1500,showConfirmButton:false});
+      }
+    });
+  });
+}
+
+// ── EDITAR VIGENCIA ───────────────────────────────────────────────
+function editarVigencia(id){
+  const r=getRegs();const x=r.find(e=>e._id===id);if(!x)return;
+  // Convertir DD/MM/AAAA → AAAA-MM-DD para el input date
+  let vigISO='';
+  if(x.vigencia&&x.vigencia!=='—'){
+    const p=x.vigencia.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if(p)vigISO=`${p[3]}-${p[2]}-${p[1]}`;
+  }
+  Swal.fire({
+    title:'Editar fecha de vigencia',
+    html:`<input id="swal-vig" type="date" value="${vigISO}" style="width:100%;padding:8px 12px;border:1.5px solid #D9CCEF;border-radius:8px;font-size:14px;outline:none;font-family:DM Sans,sans-serif"/>`,
+    showCancelButton:true,
+    confirmButtonColor:'#49267F',cancelButtonColor:'#9CA3AF',
+    confirmButtonText:'Guardar',cancelButtonText:'Cancelar',
+    preConfirm:()=>{
+      const v=document.getElementById('swal-vig').value;
+      if(!v){Swal.showValidationMessage('La fecha es obligatoria.');return false;}
+      return v;
+    }
+  }).then(res=>{
+    if(!res.isConfirmed)return;
+    const[yy,mm,dd]=res.value.split('-');
+    x.vigencia=`${dd}/${mm}/${yy}`;
+    // Actualizar descripción con la nueva fecha
+    x.descripcion=buildDesc(x.descripcionAnt,x.vigencia,x.pvpAnt);
+    saveRegs(r);actualizarFiltrosLaterales();renderTabla();
+    Swal.fire({icon:'success',title:'Vigencia actualizada',text:x.vigencia,timer:1800,showConfirmButton:false});
+  });
+}
+
+// ── BÚSQUEDA EN CATÁLOGO (modal manual) ─────────────────────────
+function buscarEnCatalogo(){
+  const q=(document.getElementById('m-busq')?.value||'').trim().toLowerCase();
+  const res=document.getElementById('m-resultados');
+  if(!res)return;
+  if(q.length<2){res.style.display='none';return;}
+  const cat=getCAT();
+  if(!cat){res.style.display='none';return;}
+  const matches=[];
+  cat.forEach((row,barras)=>{
+    const nombre=String(row['Nombre']||'').toLowerCase();
+    const ref=String(row['Referencia interna']||'').toLowerCase();
+    if(nombre.includes(q)||barras.includes(q)||ref.includes(q)) matches.push({barras,row});
+  });
+  if(!matches.length){
+    res.style.display='block';
+    res.innerHTML='<div style="padding:10px 14px;font-size:12px;color:#9CA3AF">Sin resultados en el catálogo.</div>';
+    return;
+  }
+  res.style.display='block';
+  res.innerHTML=matches.slice(0,12).map(({barras,row})=>`
+    <div onclick="seleccionarDelCatalogo('${esc(barras)}')"
+      style="padding:9px 14px;cursor:pointer;border-bottom:1px solid #F3F4F6;transition:background .1s"
+      onmouseover="this.style.background='#F0EBF9'" onmouseout="this.style.background='#fff'">
+      <div style="font-size:12px;font-weight:600;color:#111">${esc(row['Nombre']||'')}</div>
+      <div style="font-size:10px;color:#9CA3AF;margin-top:1px">
+        Ref: ${esc(row['Referencia interna']||'—')} &nbsp;·&nbsp; Barras: ${esc(barras)} &nbsp;·&nbsp; Lab: ${esc(row['Laboratorio/Nombre']||'—')}
+      </div>
+    </div>`).join('');
+}
+
+function seleccionarDelCatalogo(barras){
+  const cat=getCAT();if(!cat)return;
+  const row=cat.get(barras);if(!row)return;
+  // Guardar el row completo para usarlo al guardar
+  window._catRowSeleccionado={barras,row};
+  // Ocultar dropdown
+  const res=document.getElementById('m-resultados');if(res)res.style.display='none';
+  document.getElementById('m-busq').value='';
+  // Mostrar chip seleccionado
+  const sel=document.getElementById('m-seleccionado');
+  if(sel){
+    sel.style.display='block';
+    document.getElementById('m-sel-nombre').textContent=row['Nombre']||'';
+    document.getElementById('m-sel-info').textContent=
+      `Ref: ${row['Referencia interna']||'—'} · Barras: ${barras} · Lab: ${row['Laboratorio/Nombre']||'—'}`;
+  }
+  // Rellenar campos (editables)
+  const sv=id=>document.getElementById(id);
+  sv('m-nombre').value=row['Nombre']||'';
+  sv('m-ref').value=row['Referencia interna']||'';
+  sv('m-barras').value=barras;
+  sv('m-lab').value=row['Laboratorio/Nombre']||'';
+  sv('m-linea').value=row['Línea de laboratorio/Nombre']||'';
+
+  // IVA: viene como número (15, 0) o decimal (0.15) → mostrar como "15%" en el campo readonly
+  let ivaRaw=parseFloat(row['Impuestos del cliente/Importe']);
+  let iva=0;
+  if(!isNaN(ivaRaw)){
+    iva=ivaRaw>0&&ivaRaw<=1?Math.round(ivaRaw*100):Math.round(ivaRaw);
+  }
+  const ivaEl=sv('m-iva');
+  if(ivaEl) ivaEl.value=iva+'%';
+
+  // PVF y PVP anteriores del catálogo (editables)
+  sv('m-pvfant').value=parseFloat(row['Precio (PVF)'])||0;
+  sv('m-pvpant').value=parseFloat(row['Precio (PVP+IVA)'])||0;
+  // Fecha de vigencia: dejar vacía para que el usuario la indique
+  sv('m-vig').value='';
+  calcPctM();
+}
+
+function limpiarSeleccion(){
+  window._catRowSeleccionado=null;
+  const sel=document.getElementById('m-seleccionado');if(sel)sel.style.display='none';
+  const res=document.getElementById('m-resultados');if(res)res.style.display='none';
+  document.getElementById('m-busq').value='';
+}
+
+// ── MODAL MANUAL ─────────────────────────────────────────────────
+function abrirManual(){document.getElementById('modal-bg').style.display='flex';limpiarManual();}
+function cerrarModal(){document.getElementById('modal-bg').style.display='none';}
+function limpiarManual(){
+  ['m-nombre','m-ref','m-barras','m-lab','m-linea','m-obs','m-pct',
+   'm-pvfant','m-pvpant','m-pvfnuevo','m-pvpnuevo','m-busq','m-vig','m-iva'].forEach(id=>{
+    const e=document.getElementById(id);if(e)e.value='';
+  });
+  limpiarSeleccion();
+}
+function calcPctM(){
+  const ant=parseFloat(document.getElementById('m-pvpant')?.value)||0;
+  const nvo=parseFloat(document.getElementById('m-pvpnuevo')?.value)||0;
+  const pct=nvo>0?((nvo-ant)/nvo*100):0;
+  const el=document.getElementById('m-pct');if(el)el.value=nvo?pct.toFixed(2)+'%':'';
+}
+function guardarManual(mantenerAbierto=false){
+  const nombre=(document.getElementById('m-nombre')?.value||'').trim();
+  const lab   =(document.getElementById('m-lab')?.value||'').trim();
+  const pvpN  =parseFloat(document.getElementById('m-pvpnuevo')?.value)||0;
+  const vigR  =document.getElementById('m-vig')?.value||'';
+  if(!nombre){alertErr('Nombre obligatorio.');return;}
+  if(!lab){alertErr('Proveedor/Laboratorio obligatorio.');return;}
+  if(pvpN<=0){alertErr('PVP Nuevo debe ser mayor a 0.');return;}
+  if(!vigR){alertErr('Fecha de vigencia obligatoria.');return;}
+
+  const pvpA =parseFloat(document.getElementById('m-pvpant')?.value)||0;
+  const pvfA =parseFloat(document.getElementById('m-pvfant')?.value)||0;
+  const pvfN =parseFloat(document.getElementById('m-pvfnuevo')?.value)||0;
+  const iva  =parseInt((document.getElementById('m-iva')?.value||'0').replace('%',''))||0;
+  const pctInc=pvpN>0?((pvpN-pvpA)/pvpN*100):0;
+  const [yy,mm,dd]=vigR.split('-');
+  const vigStr=`${dd}/${mm}/${yy}`;
+
+  const catRow=window._catRowSeleccionado;
+  const udm=catRow?parseFloat(catRow.row['UdM de compra/Proporción mayor'])||1:1;
+  const calc=calcP(pvpN,iva,udm);
+  const idSistema  =catRow?String(catRow.row['ID']||''):'';
+  const estadoProd =catRow?String(catRow.row['Estado de Producto/Estado']||''):'';
+  const descAnt    =catRow?String(catRow.row['Descripción']||'').replace(/<[^>]+>/g,'').trim():'';
+  const fvAnt      =catRow?fmtDate(catRow.row['Fecha de Vencimiento Informacion']):'';
+
+  const reg={
+    _id:genId(),estado:'PENDIENTE',fechaCarga:new Date().toISOString(),
+    proveedor:lab,archivo:'Manual',
+    id:idSistema,
+    ref:(document.getElementById('m-ref')?.value||'').trim(),
+    nombre,
+    barras:(document.getElementById('m-barras')?.value||'').trim(),
+    lab,
+    linea:(document.getElementById('m-linea')?.value||'').trim(),
+    iva,udm,
+    pvfAnt:pvfA,pvpAnt:pvpA,pvfNuevo:pvfN,pvpNuevo:pvpN,
+    pvpUnidad:calc.pvpU,pvxUnidad:calc.pvxU,pvVenta:calc.pvV,pvxFracc:calc.pvxF,
+    pctInc,
+    descripcion:buildDesc(descAnt,vigStr,pvpA),
+    descripcionAnt:descAnt,
+    fechaVencNueva:fechaMas1Y(),
+    fechaVencAnt:fvAnt!=='—'?fvAnt:'',
+    estadoProd,
+    vigencia:vigStr,
+    obs:(document.getElementById('m-obs')?.value||'').trim(),
+  };
+
+  const r=getRegs();r.push(reg);saveRegs(r);
+  actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
+
+  if(mantenerAbierto){
+    // Limpiar solo los campos del producto para agregar otro con misma fecha
+    ['m-nombre','m-ref','m-barras','m-lab','m-linea','m-obs','m-pct',
+     'm-pvfant','m-pvpant','m-pvfnuevo','m-pvpnuevo','m-busq','m-vig','m-iva'].forEach(id=>{
+      const e=document.getElementById(id);if(e)e.value='';
+    });
+    limpiarSeleccion();
+    // Render tabla en background
+    renderTabla();
+    // Feedback sin cerrar modal
+    Swal.fire({icon:'success',title:'Agregado',text:nombre,timer:1400,showConfirmButton:false,
+               toast:true,position:'top-end',timerProgressBar:true});
+  }else{
+    cerrarModal();vista('registros');
+    Swal.fire({icon:'success',title:'Registro agregado',text:nombre,timer:2000,showConfirmButton:false});
+  }
+}
+
+// ── FILTROS LATERALES ────────────────────────────────────────────
+function actualizarFiltrosLaterales(){
+  const regs=getRegs();
+  const anios=new Set(),lineas=new Set();
+  regs.forEach(r=>{
+    const ym=parseFechaYM(r.vigencia);if(ym)anios.add(ym.y);
+    if(r.linea) lineas.add(r.linea);
+  });
+  // año tabla
+  const sa=document.getElementById('f-anio');
+  if(sa){const v=sa.value;sa.innerHTML='<option value="">Todos los años</option>';Array.from(anios).sort().forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;if(String(y)===v)o.selected=true;sa.appendChild(o);});}
+  // Guardar líneas disponibles globalmente para el buscador
+  window._lineasDisponibles=[''].concat(Array.from(lineas).sort());
+  poblarOpcionesLinea(window._lineasDisponibles);
+  // año plantilla: sincronizado con f-anio
+  actualizarKPIs();
+  renderTabla();
+}
+
+// ── DROPDOWN PERSONALIZADO LÍNEA DE LAB. ─────────────────────────
+window._lineasDisponibles=[];
+window._lineaSeleccionada='';
+
+function poblarOpcionesLinea(lineas){
+  const cont=document.getElementById('f-prov-opts');
+  if(!cont)return;
+  // Guardar lista actual para acceso por índice desde onclick
+  window._lineasFiltradas=lineas;
+  const sel=window._lineaSeleccionada;
+  cont.innerHTML=lineas.map((l,i)=>{
+    const label=l===''?'Todas las líneas':l;
+    const activo=l===sel;
+    return`<div onclick="seleccionarLineaIdx(${i})"
+      style="padding:9px 14px;cursor:pointer;font-size:12px;font-weight:${activo?'700':'400'};
+             color:${activo?'#49267F':'#374151'};background:${activo?'#F0EBF9':'#fff'};
+             border-bottom:1px solid #F9FAFB;display:flex;align-items:center;gap:6px"
+      onmouseover="this.style.background='#F0EBF9'"
+      onmouseout="this.style.background='${activo?'#F0EBF9':'#fff'}'">
+      <span style="width:14px;color:#49267F;font-weight:700;flex-shrink:0">${activo?'✓':''}</span>
+      ${esc(label)}
+    </div>`;
+  }).join('')||'<div style="padding:10px 14px;font-size:12px;color:#9CA3AF">Sin resultados</div>';
+}
+
+function seleccionarLineaIdx(idx){
+  const lineas=window._lineasFiltradas||[];
+  const val=lineas[idx];
+  if(val===undefined)return;
+  seleccionarLinea(val);
+}
+
+function filtrarOpcionesLinea(){
+  const q=(document.getElementById('f-prov-search')?.value||'').toLowerCase().trim();
+  if(!q){poblarOpcionesLinea(window._lineasDisponibles);return;}
+  const filt=window._lineasDisponibles.filter(l=>l===''||l.toLowerCase().includes(q));
+  poblarOpcionesLinea(filt);
+}
+
+function toggleDropdownLinea(e){
+  e.stopPropagation();
+  const drop=document.getElementById('f-prov-drop');
+  if(!drop)return;
+  const abierto=drop.style.display==='block';
+  if(abierto){cerrarDropdownLinea();}
+  else{
+    drop.style.display='block';
+    document.getElementById('f-prov-input').style.borderColor='#49267F';
+    const s=document.getElementById('f-prov-search');
+    if(s){s.value='';s.focus();}
+    poblarOpcionesLinea(window._lineasDisponibles);
+  }
+}
+
+function seleccionarLinea(val){
+  window._lineaSeleccionada=val;
+  const lbl=document.getElementById('f-prov-label');
+  if(lbl){
+    lbl.textContent=val===''?'Todas las líneas':val;
+    lbl.style.color=val===''?'#9CA3AF':'#374151';
+  }
+  // Sincronizar select oculto
+  const sel=document.getElementById('f-prov');
+  if(sel) sel.value=val;
+  cerrarDropdownLinea();
+  // Llamar directamente — dispatchEvent no siempre dispara handlers inline
+  renderTabla();
+}
+
+function cerrarDropdownLinea(){
+  const drop=document.getElementById('f-prov-drop');
+  if(drop)drop.style.display='none';
+  const inp=document.getElementById('f-prov-input');
+  if(inp)inp.style.borderColor='#E5E7EB';
+  const s=document.getElementById('f-prov-search');
+  if(s)s.value='';
+  poblarOpcionesLinea(window._lineasDisponibles);
+}
+
+// Cerrar dropdown al hacer clic fuera
+document.addEventListener('click',function(e){
+  const wrap=document.getElementById('linea-wrap');
+  if(wrap&&!wrap.contains(e.target))cerrarDropdownLinea();
+});
+
+// ── KPIs ─────────────────────────────────────────────────────────
+function actualizarKPIs(){
+  const r=getRegs();
+  document.getElementById('sk-total').textContent=r.length;
+  document.getElementById('sk-pend').textContent=r.filter(x=>x.estado==='PENDIENTE').length;
+  document.getElementById('sk-act').textContent=r.filter(x=>x.estado==='ACTUALIZADO').length;
+}
+
+// ── PLANTILLA (filtrado inline) ───────────────────────────────────
+let FILAS_PLT=[];
+function filtrarPlantilla(){
+  // Usa los mismos filtros de mes y año del sidebar
+  const mes =parseInt(document.getElementById('f-mes')?.value)||0;
+  const anio=parseInt(document.getElementById('f-anio')?.value)||0;
+  let filas=getRegs().filter(r=>r.estado==='PENDIENTE');
+  if(mes||anio){
+    filas=filas.filter(f=>{
+      const ym=parseFechaYM(f.vigencia);
+      if(mes&&ym&&ym.m!==mes)return false;
+      if(anio&&ym&&ym.y!==anio)return false;
+      return true;
+    });
+  }
+  FILAS_PLT=filas;
+  const btn=document.getElementById('btn-plt');
+  if(btn)btn.disabled=filas.length===0;
+  const cnt=document.getElementById('plt-cnt');
+  if(cnt)cnt.textContent=filas.length?filas.length:'';
+  const info=document.getElementById('plt-info'),infot=document.getElementById('plt-info-txt');
+  if(info&&infot){
+    const partes=[];if(mes)partes.push(MESES[mes]);if(anio)partes.push(anio);
+    if(partes.length&&filas.length){info.style.display='block';infot.textContent=filas.length+' productos PENDIENTES para exportar · '+partes.join(' ');}
+    else info.style.display='none';
+  }
+}
+
+// ── EXPORTAR PLANTILLA EXCEL ─────────────────────────────────────
+// Fuente: Calibri 8 · Alto fila: 15 · Columnas ajustadas · Fila 1 inmovilizada
+// Columnas: 22 exactas del sistema + %_Incremento en posición 9 (después de UdM)
+// Fecha Vencimiento Informacion     → fechaVencNueva (fecha actual + 1 año)
+// Fecha Vencimiento Informacion_Ant → fechaVencAnt   (del catálogo, puede ser vacío)
+function exportarPlantilla(){
+  if(!FILAS_PLT.length){alertErr('Sin registros PENDIENTES para el filtro seleccionado.');return;}
+
+  const HDRS=[
+    'ID','/Referencia interna','/Nombre','/Código de barras',
+    '/Laboratorio/Nombre','/Línea de laboratorio/Nombre',
+    '/Impuestos del cliente/Importe','/UdM de compra/Proporción mayor',
+    '%_Incremento',
+    'Precio (PVF)_Ant','Precio (PVP+IVA)_Ant',
+    'Precio (PVF)','Precio (PVP+IVA)',
+    'Precio (PVP Unidad)','Precio PVX (Unidad)','Precio de venta','Precio PVX (Fracción)',
+    'Descripción','Descripción_Ant',
+    'Fecha de Vencimiento Informacion','Fecha de Vencimiento Informacion_Ant',
+    '/Estado de Producto/Estado',
+  ];
+
+  const data=FILAS_PLT.map(f=>({
+    'ID':f.id,
+    '/Referencia interna':f.ref,
+    '/Nombre':f.nombre,
+    '/Código de barras':f.barras,
+    '/Laboratorio/Nombre':f.lab,
+    '/Línea de laboratorio/Nombre':f.linea,
+    '/Impuestos del cliente/Importe':f.iva,
+    '/UdM de compra/Proporción mayor':f.udm,
+    '%_Incremento':parseFloat((f.pctInc||0).toFixed(6))/100,
+    'Precio (PVF)_Ant':f.pvfAnt,
+    'Precio (PVP+IVA)_Ant':f.pvpAnt,
+    'Precio (PVF)':f.pvfNuevo,
+    'Precio (PVP+IVA)':f.pvpNuevo,
+    'Precio (PVP Unidad)':f.pvpUnidad,
+    'Precio PVX (Unidad)':f.pvxUnidad,
+    'Precio de venta':f.pvVenta,
+    'Precio PVX (Fracción)':f.pvxFracc,
+    'Descripción':f.descripcion,
+    'Descripción_Ant':String(f.descripcionAnt||'').replace(/<[^>]+>/g,'').trim(),
+    'Fecha de Vencimiento Informacion':f.fechaVencNueva||'',      // ← fecha actual + 1 año
+    'Fecha de Vencimiento Informacion_Ant':f.fechaVencAnt||'',   // ← del catálogo
+    '/Estado de Producto/Estado':f.estadoProd,
+  }));
+
+  const wb=XLSX.utils.book_new();
+  // Forzar fuente por defecto del workbook a Calibri 8
+  wb.Workbook={SheetNames:[],Sheets:{}};
+
+  const ws=XLSX.utils.json_to_sheet(data,{header:HDRS});
+
+  // ── ESTILOS ──
+  const C={V:'FF49267F',GH:'FF1A7A34',GL:'FFD4EDDA',YH:'FF856404',YL:'FFFFF099',BH:'FF1E3A8A',BL:'FFDBEAFE',W:'FFFFFFFF',LG:'FFF7F7F7',TW:'FFFFFFFF',TD:'FF111111'};
+  function grp(c){if(c<=7)return'id';if(c===8)return'pct';if(c<=10)return'ant';if(c<=12)return'new';if(c<=16)return'calc';if(c===17)return'dN';if(c===18)return'dA';if(c===19)return'fN';if(c===20)return'fA';return'id';}
+  const HC={id:C.V,pct:C.BH,ant:C.GH,new:C.YH,calc:C.V,dN:C.YH,dA:C.GH,fN:C.YH,fA:C.GH};
+  const DC={id:C.W,pct:C.BL,ant:C.GL,new:C.YL,calc:C.LG,dN:C.YL,dA:C.GL,fN:C.YL,fA:C.GL};
+
+  // mkStyle: el font siempre tiene name:'Calibri', sz:8 explícito
+  function mkStyle(fill,bold,align,numFmt){
+    const s={
+      fill:{patternType:'solid',fgColor:{argb:fill},bgColor:{argb:'FF000000'}},
+      font:{name:'Calibri',sz:8,bold:!!bold,color:{argb:bold?C.TW:C.TD}},
+      alignment:{horizontal:align||'left',vertical:'center',wrapText:false},
+      border:{
+        top:{style:'thin',color:{argb:'FFDDDDDD'}},
+        bottom:{style:'thin',color:{argb:'FFDDDDDD'}},
+        left:{style:'thin',color:{argb:'FFDDDDDD'}},
+        right:{style:'thin',color:{argb:'FFDDDDDD'}}
+      },
+    };
+    if(numFmt){s.numFmt=numFmt;}
+    return s;
+  }
+
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  const nRows=data.length;
+
+  for(let c=range.s.c;c<=range.e.c;c++){
+    const g=grp(c);
+
+    // Cabecera fila 0
+    const hA=XLSX.utils.encode_cell({r:0,c});
+    if(!ws[hA])ws[hA]={t:'s',v:''};
+    ws[hA].s=mkStyle(HC[g]||C.V,true,'center');
+
+    // Filas de datos
+    for(let r=1;r<=nRows;r++){
+      const dA=XLSX.utils.encode_cell({r,c});
+      if(!ws[dA])ws[dA]={t:'s',v:''};
+      const isNum=c>=8&&c<=16;
+      const aln=isNum?'right':'left';
+      let nf;
+      if(c===8){
+        nf='0.00%';
+        // Forzar tipo numérico para que Excel aplique el formato %
+        if(ws[dA].t!=='n'){ws[dA].t='n';ws[dA].v=parseFloat(ws[dA].v)||0;}
+      } else if(c>=9&&c<=16){
+        nf='#,##0.000000';
+        if(ws[dA].t!=='n'&&ws[dA].v!==''&&ws[dA].v!=null){ws[dA].t='n';ws[dA].v=parseFloat(ws[dA].v)||0;}
+      }
+      ws[dA].s=mkStyle(DC[g]||C.W,false,aln,nf);
+      // Poner numFmt también en .z (SheetJS lo usa para renderizar)
+      if(nf) ws[dA].z=nf;
+    }
+  }
+
+  // Anchos de columna (caracteres)
+  ws['!cols']=[
+    {wch:30},{wch:9},{wch:40},{wch:17},
+    {wch:18},{wch:22},{wch:7},{wch:7},
+    {wch:9},          // %_Incremento
+    {wch:11},{wch:11},{wch:11},{wch:11},
+    {wch:12},{wch:12},{wch:12},{wch:12},
+    {wch:55},{wch:55},
+    {wch:16},{wch:16},
+    {wch:20},
+  ];
+
+  // Alto de fila cabecera + datos = 15pt (en unidades Excel: hpt)
+  const rowObjs=[{hpt:15}];
+  for(let r=0;r<nRows;r++) rowObjs.push({hpt:15});
+  ws['!rows']=rowObjs;
+
+  // Inmovilizar primera fila
+  ws['!freeze']={xSplit:0,ySplit:1,topLeftCell:'A2',activePane:'bottomLeft',state:'frozen'};
+
+  XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
+
+  const mes=document.getElementById('f-mes')?.value||'';
+  const anio=document.getElementById('f-anio')?.value||'';
+  const suf=[anio,mes].filter(Boolean).join('_')||new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb,`Catalogo_Act_PVP_Plantilla_${suf}.xlsx`,{cellStyles:true});
+  Swal.fire({icon:'success',title:'Plantilla exportada',text:`${FILAS_PLT.length} productos listos para importar.`,confirmButtonColor:'#49267F'});
+}
+
+// ── EXPORTAR HISTORIAL ───────────────────────────────────────────
+function exportarExcel(){
+  const r=getRegs();if(!r.length){alertErr('Sin registros.');return;}
+  const data=r.map(x=>({
+    'Estado':x.estado,'Vigencia':x.vigencia,
+    'Fecha Registro':(x.fechaCarga||'').slice(0,10),
+    'Fecha Actualización':(x.fechaAct||'').slice(0,10),
+    'Proveedor':x.proveedor,'Nombre':x.nombre,
+    'Ref.':x.ref,'Código Barras':x.barras,'IVA%':x.iva,
+    'PVF Ant.':x.pvfAnt,'PVP Ant.':x.pvpAnt,'PVF Nuevo':x.pvfNuevo,'PVP Nuevo':x.pvpNuevo,
+    '% Inc.':parseFloat((x.pctInc||0).toFixed(4)),'Laboratorio':x.lab,
+    'Descripción':x.descripcion,'Fecha Venc.':x.fechaVencNueva,'Fecha Venc. Ant.':x.fechaVencAnt,
+    'Estado Prod.':x.estadoProd,'Obs.':x.obs,
+  }));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),'Registros');
+  XLSX.writeFile(wb,'GestorPrecios_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  Swal.fire({icon:'success',title:'Exportado',timer:2000,showConfirmButton:false});
+}
+
+// ── LIMPIAR ──────────────────────────────────────────────────────
+function confirmarLimpiar(){
+  Swal.fire({icon:'warning',title:'¿Limpiar todos los datos?',text:'Se eliminan todos los registros y el catálogo.',showCancelButton:true,confirmButtonColor:'#FF3B1F',cancelButtonColor:'#49267F',confirmButtonText:'Sí, limpiar',cancelButtonText:'Cancelar'
+  }).then(r=>{
+    if(r.isConfirmed){[LS_REG,LS_CAT].forEach(k=>localStorage.removeItem(k));CAT=null;FILAS_PLT=[];actualizarKPIs();actualizarFiltrosLaterales();Swal.fire({icon:'success',title:'Listo',timer:2000,showConfirmButton:false});}
+  });
+}
+function alertErr(m){Swal.fire({icon:'error',title:'Error',text:m,confirmButtonColor:'#49267F'});}
+
+// ── INICIO ───────────────────────────────────────────────────────
+(function init(){
+  const cat=getCAT();
+  if(cat){
+    document.getElementById('cat-info').textContent='Catálogo: '+cat.size+' prod.';
+    const z=document.getElementById('zone-cat');if(z)z.classList.add('ok');
+    const l=document.getElementById('cat-label');if(l)l.textContent='✔ Catálogo guardado — '+cat.size+' productos';
+  }
+  actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
+})();
+</script>
+</body>
+</html>
