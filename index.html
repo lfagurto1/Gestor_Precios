@@ -615,8 +615,28 @@ function vista(id){_vistaOrig(id);if(window.innerWidth<=768)cerrarSidebar();}
 (function tick(){const e=document.getElementById('clock');if(e){const d=new Date();e.textContent=pad(d.getHours())+':'+pad(d.getMinutes());}setTimeout(tick,10000);})();
 
 // ── STORAGE ──────────────────────────────────────────────────────
-function getRegs(){try{return JSON.parse(localStorage.getItem(LS_REG)||'[]');}catch(e){return[];}}
-function saveRegs(arr){try{localStorage.setItem(LS_REG,JSON.stringify(arr));}catch(e){Swal.fire({icon:'warning',title:'localStorage lleno',text:'Exporta y limpia datos antiguos.',timer:4000});}}
+function getRegs(){
+  try{
+    const raw=localStorage.getItem(LS_REG);
+    console.log('getRegs raw length:',raw?raw.length:'null');
+    const arr=JSON.parse(raw||'[]');
+    console.log('getRegs parsed:',arr.length,'registros');
+    return arr;
+  }catch(e){console.error('getRegs error:',e);return[];}
+}
+function saveRegs(arr){
+  try{
+    const json=JSON.stringify(arr);
+    console.log('saveRegs intentando guardar:',arr.length,'regs,',json.length,'chars');
+    localStorage.setItem(LS_REG,json);
+    // Verificar que se guardó
+    const verify=localStorage.getItem(LS_REG);
+    console.log('saveRegs verificación:',verify?JSON.parse(verify).length:'FALLO');
+  }catch(e){
+    console.error('saveRegs ERROR:',e.name,e.message);
+    Swal.fire({icon:'warning',title:'Error al guardar',text:'localStorage lleno o bloqueado: '+e.message,timer:5000});
+  }
+}
 function getCAT(){
   // El catálogo es SOLO en memoria — no se persiste en localStorage
   // Hay que cargarlo cada vez que se abre la página
