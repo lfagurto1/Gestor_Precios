@@ -1423,6 +1423,8 @@ function alertErr(m){Swal.fire({icon:'error',title:'Error',text:m,confirmButtonC
 (function init(){
   // El catálogo NO persiste — debe cargarse cada sesión
   // Solo los registros de la tabla persisten en localStorage
+  const regsIniciales=getRegs();
+  console.log('INIT — registros en localStorage al arrancar:',regsIniciales.length);
   document.getElementById('cat-info').textContent='Sin catálogo';
   actualizarKPIs();
   actualizarFiltrosLaterales();
