@@ -693,14 +693,25 @@ function leerProv(file){
       console.log('Hoja seleccionada:',wsName);
       const ws=wb.Sheets[wsName];
       if(!ws){alertErr('No se encontró la hoja FORMATO. Hojas disponibles: '+wb.SheetNames.join(', '));return;}
-      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,cellDates:true,blankrows:false});
-      console.log('Filas:',rows.length,'Fila6:',JSON.stringify(rows[5]));
-      if(!rows||rows.length<6){alertErr('El archivo tiene pocas filas ('+( rows&&rows.length||0)+'). Verifica el archivo.');return;}
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true,cellDates:true});
+      console.log('Filas totales:',rows.length);
+      // Encontrar la primera fila de datos buscando la que tiene código de barras numérico
+      let dataStart=5;
+      for(let i=3;i<Math.min(rows.length,10);i++){
+        const r=rows[i];
+        if(r&&r[0]!=null&&String(r[0]).trim().length>5&&!isNaN(String(r[0]).replace(/\s/g,''))){
+          dataStart=i;
+          console.log('Primera fila de datos detectada en índice:',i,'valor:',r[0]);
+          break;
+        }
+      }
+      console.log('dataStart:',dataStart,'Fila datos:',JSON.stringify(rows[dataStart]));
+      if(rows.length<=dataStart){alertErr('Sin datos en el archivo desde la fila '+(dataStart+1)+'.');return;}
       let prov='';
       if(rows[1]&&rows[1][2]!=null)prov=String(rows[1][2]).trim();
       const regs=getRegs();
       let nE=0,nN=0;
-      for(let i=5;i<rows.length;i++){
+      for(let i=dataStart;i<rows.length;i++){
         const rw=rows[i];if(!rw)continue;
         const barras=rw[0]!=null?String(rw[0]).trim():'';if(!barras)continue;
         let iva=parseFloat(rw[2])||0;
@@ -748,7 +759,8 @@ function leerProv(file){
           });nN++;
         }
       }
-      if(nE===0&&nN===0){alertErr('Sin productos en el archivo. Verifica que la hoja FORMATO tenga datos desde la fila 6.');return;}
+      console.log('Procesados — encontrados:',nE,'no encontrados:',nN,'total regs:',regs.length);
+      if(nE===0&&nN===0){alertErr('Sin productos procesados. Verifica el archivo.');return;}
       saveRegs(regs);
       document.getElementById('zone-prov').classList.remove('ok','drag');
       actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
