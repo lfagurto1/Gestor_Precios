@@ -198,11 +198,11 @@ input[type=number]{-moz-appearance:textfield;appearance:textfield}
   </div>
 
   <nav style="padding:8px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid #F3F4F6">
-    <button class="nav-btn active" id="nb-registros" onclick="vista('registros')">
+    <button class="nav-btn active" id="nb-registros" onclick="_vistaMobile('registros')">
       <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
       Registros
     </button>
-    <button class="nav-btn" id="nb-carga" onclick="vista('carga')">
+    <button class="nav-btn" id="nb-carga" onclick="_vistaMobile('carga')">
       <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
       Cargar Comunicado
     </button>
@@ -607,9 +607,8 @@ function cerrarSidebar(){
   document.getElementById('sb-overlay').classList.remove('open');
   document.body.style.overflow='';
 }
-// Cerrar sidebar al navegar en móvil
-const _vistaOrig=vista;
-function vista(id){_vistaOrig(id);if(window.innerWidth<=768)cerrarSidebar();}
+// Cerrar sidebar al navegar en móvil — se parchea después de definir vista()
+function _vistaMobile(id){vista(id);if(window.innerWidth<=768)cerrarSidebar();}
 
 // Reloj
 (function tick(){const e=document.getElementById('clock');if(e){const d=new Date();e.textContent=pad(d.getHours())+':'+pad(d.getMinutes());}setTimeout(tick,10000);})();
@@ -1414,7 +1413,15 @@ function exportarExcel(){
 function confirmarLimpiar(){
   Swal.fire({icon:'warning',title:'¿Limpiar todos los datos?',text:'Se eliminan todos los registros y el catálogo.',showCancelButton:true,confirmButtonColor:'#FF3B1F',cancelButtonColor:'#49267F',confirmButtonText:'Sí, limpiar',cancelButtonText:'Cancelar'
   }).then(r=>{
-    if(r.isConfirmed){localStorage.removeItem(LS_REG);CAT=null;FILAS_PLT=[];actualizarKPIs();actualizarFiltrosLaterales();Swal.fire({icon:'success',title:'Listo',timer:2000,showConfirmButton:false});}
+    if(r.isConfirmed){
+      localStorage.removeItem(LS_REG);CAT=null;FILAS_PLT=[];
+      // Resetear UI del catálogo
+      document.getElementById('zone-cat').classList.remove('ok');
+      document.getElementById('cat-label').textContent='Clic o arrastra · .xlsx / .xls';
+      document.getElementById('cat-info').textContent='Sin catálogo';
+      actualizarKPIs();actualizarFiltrosLaterales();
+      Swal.fire({icon:'success',title:'Listo',timer:2000,showConfirmButton:false});
+    }
   });
 }
 function alertErr(m){Swal.fire({icon:'error',title:'Error',text:m,confirmButtonColor:'#49267F'});}
