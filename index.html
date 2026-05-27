@@ -638,22 +638,22 @@ function getRegs(){
 }
 function saveRegs(arr){
   try{
-    const json=JSON.stringify(arr);
-    const compressed=LZString.compress(json);
-    console.log('saveRegs:',arr.length,'regs |',json.length,'chars →',compressed.length,'compressed');
+    const compressed=LZString.compress(JSON.stringify(arr));
+    console.log('saveRegs:',arr.length,'regs |',JSON.stringify(arr).length,'chars →',compressed.length,'compressed');
+    // Limpiar TODO el localStorage excepto nuestra clave antes de guardar
+    for(let i=localStorage.length-1;i>=0;i--){
+      const k=localStorage.key(i);
+      if(k&&k!==LS_REG)localStorage.removeItem(k);
+    }
     localStorage.setItem(LS_REG,compressed);
   }catch(e){
     console.error('saveRegs ERROR:',e.name,e.message);
-    // Intentar liberar claves huérfanas y reintentar
+    // Último recurso: limpiar absolutamente todo y reintentar
     try{
-      for(let i=localStorage.length-1;i>=0;i--){
-        const k=localStorage.key(i);
-        if(k&&k!==LS_REG&&k.startsWith('pvc_'))localStorage.removeItem(k);
-      }
+      localStorage.clear();
       localStorage.setItem(LS_REG,LZString.compress(JSON.stringify(arr)));
       return;
     }catch(e2){console.error('saveRegs retry ERROR:',e2.message);}
-    // Ofrecer descarga como respaldo
     Swal.fire({
       icon:'warning',title:'Almacenamiento lleno',
       html:'No se pudo guardar.<br><b>Descarga el respaldo</b> para no perder los datos.',
@@ -1480,8 +1480,11 @@ function alertErr(m){Swal.fire({icon:'error',title:'Error',text:m,confirmButtonC
 
 // ── INICIO ───────────────────────────────────────────────────────
 (function init(){
-  // El catálogo NO persiste — debe cargarse cada sesión
-  // Solo los registros de la tabla persisten en localStorage
+  // Limpiar claves ajenas al arrancar para liberar cuota
+  for(let i=localStorage.length-1;i>=0;i--){
+    const k=localStorage.key(i);
+    if(k&&k!==LS_REG)localStorage.removeItem(k);
+  }
   const regsIniciales=getRegs();
   console.log('INIT — registros en localStorage al arrancar:',regsIniciales.length);
   document.getElementById('cat-info').textContent='Sin catálogo';
