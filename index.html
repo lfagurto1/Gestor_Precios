@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css"/>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
 *{font-family:'DM Sans',sans-serif;box-sizing:border-box}
@@ -626,38 +627,37 @@ function _vistaMobile(id){vista(id);if(window.innerWidth<=768)cerrarSidebar();}
 function getRegs(){
   try{
     const raw=localStorage.getItem(LS_REG);
-    console.log('getRegs raw length:',raw?raw.length:'null');
-    const arr=JSON.parse(raw||'[]');
-    console.log('getRegs parsed:',arr.length,'registros');
-    return arr;
+    if(!raw)return[];
+    // Intentar descomprimir primero, si falla asumir JSON plano (migración)
+    let json;
+    try{json=LZString.decompress(raw);}catch(e){json=null;}
+    if(!json||json==='null')json=raw;
+    const arr=JSON.parse(json||'[]');
+    return Array.isArray(arr)?arr:[];
   }catch(e){console.error('getRegs error:',e);return[];}
 }
 function saveRegs(arr){
   try{
     const json=JSON.stringify(arr);
-    console.log('saveRegs intentando guardar:',arr.length,'regs,',json.length,'chars');
-    localStorage.setItem(LS_REG,json);
+    const compressed=LZString.compress(json);
+    console.log('saveRegs:',arr.length,'regs |',json.length,'chars →',compressed.length,'compressed');
+    localStorage.setItem(LS_REG,compressed);
   }catch(e){
     console.error('saveRegs ERROR:',e.name,e.message);
-    // Intentar liberar espacio eliminando claves huérfanas del mismo prefijo
+    // Intentar liberar claves huérfanas y reintentar
     try{
-      const keysToRemove=[];
-      for(let i=0;i<localStorage.length;i++){
+      for(let i=localStorage.length-1;i>=0;i--){
         const k=localStorage.key(i);
-        if(k&&k!==LS_REG&&k.startsWith('pvc_'))keysToRemove.push(k);
+        if(k&&k!==LS_REG&&k.startsWith('pvc_'))localStorage.removeItem(k);
       }
-      keysToRemove.forEach(k=>localStorage.removeItem(k));
-      localStorage.setItem(LS_REG,JSON.stringify(arr));
-      console.log('saveRegs: guardado tras limpiar claves huérfanas');
+      localStorage.setItem(LS_REG,LZString.compress(JSON.stringify(arr)));
       return;
     }catch(e2){console.error('saveRegs retry ERROR:',e2.message);}
-    // Si sigue fallando, ofrecer descarga como respaldo
+    // Ofrecer descarga como respaldo
     Swal.fire({
-      icon:'warning',
-      title:'Almacenamiento lleno',
-      html:'No se pudo guardar en localStorage.<br><b>Descarga el respaldo</b> para no perder los datos.',
-      confirmButtonText:'Descargar respaldo',
-      confirmButtonColor:'#49267F',
+      icon:'warning',title:'Almacenamiento lleno',
+      html:'No se pudo guardar.<br><b>Descarga el respaldo</b> para no perder los datos.',
+      confirmButtonText:'Descargar respaldo',confirmButtonColor:'#49267F',
       showCancelButton:true,cancelButtonText:'Ignorar'
     }).then(r=>{
       if(r.isConfirmed){
