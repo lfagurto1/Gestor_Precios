@@ -782,13 +782,14 @@ function leerProv(file){
       if(nE===0&&nN===0){alertErr('Sin productos procesados. Verifica el archivo.');return;}
       saveRegs(regs);
       document.getElementById('zone-prov').classList.remove('ok','drag');
-      actualizarKPIs();actualizarFiltrosLaterales();filtrarPlantilla();
+      // Navegar a registros ANTES del Swal para que la tabla ya esté visible
+      vista('registros');
       if(cat&&nN>0){
-        Swal.fire({icon:'warning',title:'Comunicado guardado',html:'✅ <b>'+nE+'</b> encontrados en catálogo<br>❌ <b>'+nN+'</b> no encontrados',confirmButtonColor:'#49267F'}).then(()=>vista('registros'));
+        Swal.fire({icon:'warning',title:'Comunicado guardado',html:'✅ <b>'+nE+'</b> encontrados en catálogo<br>❌ <b>'+nN+'</b> no encontrados',confirmButtonColor:'#49267F'});
       }else if(!cat){
-        Swal.fire({icon:'success',title:'Comunicado cargado',html:'✅ <b>'+(nE+nN)+'</b> productos guardados.<br><small style="color:#9CA3AF">Carga el catálogo para enriquecer con ref. y línea.</small>',confirmButtonColor:'#49267F'}).then(()=>vista('registros'));
+        Swal.fire({icon:'success',title:'Comunicado cargado',html:'✅ <b>'+(nE+nN)+'</b> productos guardados.<br><small style="color:#9CA3AF">Carga el catálogo para enriquecer con ref. y línea.</small>',confirmButtonColor:'#49267F'});
       }else{
-        Swal.fire({icon:'success',title:'Comunicado guardado',text:nE+' productos agregados',timer:2500,showConfirmButton:false}).then(()=>vista('registros'));
+        Swal.fire({icon:'success',title:'Comunicado guardado',text:nE+' productos agregados',timer:2500,showConfirmButton:false});
       }
     }catch(err){alertErr('Error: '+err.message);console.error(err);}
   };
